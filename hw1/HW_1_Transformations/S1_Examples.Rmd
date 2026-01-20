@@ -1,0 +1,414 @@
+---
+title: 'EF Session 1: Transformations into stationarity'
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+## Aim: Given three time series (Nottem, gnp, Airpassengers), transform them into stationarity.
+
+### 1. Nottem
+
+Average Monthly Temperatures at Nottingham, 1920-1939
+
+Description: A time series object containing average air temperatures at Nottingham Castle in degrees Fahrenheit for 20 years.
+
+```{r}
+#?nottem
+nottem # List Nottem observations
+```
+```{r}
+# Some useful properties of a time series object
+class(nottem) #Type of object
+str(nottem) #Type  plus atributes
+
+length(nottem)         #No. of observations
+(stno=start(nottem))   #Starting point ...
+(enno=end(nottem))     #Ending point ...
+frequency(nottem)      # No. of (months) in a (year)
+
+(enno[1]-stno[1]+1)
+(enno[1]-stno[1]+1) * frequency(nottem) #No. of observations
+```
+### Is Variance constant?
+
+```{r}
+plot(nottem,type="o")
+#LA
+abline(h=mean(nottem), col=2)
+```
+
+
+```{r}
+ m=apply(matrix(nottem,ncol=20),2,mean) #lleno matrix 12x20 x columnas y get media por cada a?o
+ v=apply(matrix(nottem,ncol=20),2,var)
+ plot(v~m,main="Mean-Variance plot")
+ abline(lm(v~m))
+```
+
+
+```{r}
+##boxplot per each year
+boxplot(nottem~floor(time(nottem))) 
+```
+
+#### The varianza seemingly constant!  
+
+### Is seasonality present? 
+
+```{r}
+plot(window(nottem,start=1920,end=1925),type="o")   #Zoom
+abline(v=1920:1925,col=4,lty=3)
+```
+```{r}
+monthplot(nottem)
+```
+```{r}
+# ACF decreasing slowly => non-stationarity
+acf(nottem,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,11)),lwd=2)
+```
+
+#### Yes, a pattern repeats itself every s=12 months
+
+```{r}
+##
+# Difference of order 12 to remove the seasonal component 
+d12nottem=diff(nottem,12)
+```
+
+### Is the mean constant? 
+
+```{r}
+plot(d12nottem)
+abline(h=0)
+```
+```{r}
+var(d12nottem)
+var(diff(d12nottem))
+```
+
+#### Yes, time series seemingly constant with mean around 0
+
+### Is the transformed series already stationary?
+
+```{r}
+# Constant mean, constant variance, ACF with fast decay => stationarity
+par(mfrow=c(1,2))
+acf(d12nottem,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,11)),lwd=2)
+pacf(d12nottem,ylim=c(-1,1),lag.max=60,col=c(rep(1,11),2),lwd=2)
+par(mfrow=c(1,1))
+
+#monthplot(d12nottem)
+```
+
+### Summary: Series d12Nottem has constant mean and variance.ACF decaying rapidly towards 0. => Stationarity achieved
+
+
+$$W_t=(1-B^{12})X_t=X_t-X_{t-12}$$
+
+```{r}
+par(mfrow=c(1,2))
+plot(nottem,main="X_t")
+plot(d12nottem,main="W_t=(1-B^{12})X_t")
+abline(h=0)
+par(mfrow=c(1,1))
+
+```
+
+### 2. gnp
+
+Gross National Product USA, Quarterly data (I/1947-I/1991) Seasonally adjusted
+
+Description: Gross national product (GNP) is the market value of all the products and services produced in one year by labor and property supplied by the citizens of a country[https://en.wikipedia.org/wiki/Gross_national_product](wiki).
+
+```{r}
+#install.packages("astsa")
+library(astsa)
+# Object ts (time series): starting in 1947 and frequency 4 (quarterly data)
+plot(gnp)
+
+start(gnp)        #Starting point ...
+end(gnp)          #Ending point ...
+frequency(gnp)    # No. of (quarters) in a (year)
+length(gnp)       #No. of observations 
+#(end(gnp)[1]-start(gnp)[1]+1)*4 -3
+```
+
+### Is Variance constant?
+
+```{r}
+w1 <- window(gnp,start=1947,end=1960)
+w2 <- window(gnp,start=1960,end=1980)
+w3 <- window(gnp,start=1980,end=2000)
+
+par(mfrow=c(1,3))
+plot(w1,ylim=c(min(gnp),max(gnp)))
+plot(w2,ylim=c(min(gnp),max(gnp)))
+plot(w3,ylim=c(min(gnp),max(gnp)))
+
+par(mfrow=c(1,3))
+boxplot(w1,ylim = c(min(gnp),max(gnp)))
+boxplot(w2,ylim = c(min(gnp),max(gnp)))
+boxplot(w3,ylim = c(min(gnp),max(gnp)))
+```
+
+##### Variance appears to be non-constant: it seems to change with the level of the series
+
+```{r}
+# Logarithm transformation to stabilize the variance
+lngnp=log(gnp)
+plot(lngnp)
+```
+```{r}
+lnw1 <- window(lngnp,start=1947,end=1960)
+lnw2 <- window(lngnp,start=1960,end=1980)
+lnw3 <- window(lngnp,start=1980,end=2000)
+
+par(mfrow=c(1,3))
+plot(lnw1,ylim=c(min(lngnp),max(lngnp)))
+plot(lnw2,ylim=c(min(lngnp),max(lngnp)))
+plot(lnw3,ylim=c(min(lngnp),max(lngnp)))
+
+par(mfrow=c(1,3))
+boxplot(lnw1,ylim=c(min(lngnp),max(lngnp)))
+boxplot(lnw2,ylim=c(min(lngnp),max(lngnp)))
+boxplot(lnw3,ylim=c(min(lngnp),max(lngnp)))
+```
+
+#### Now the variance constant...
+
+### Is seasonality present? 
+
+#### Nop, gnp series has been Seasonally adjusted
+
+### Is the mean constant? 
+
+#### Cleary nop
+
+```{r}
+par(mfrow=c(1,2))
+acf(lngnp,ylim=c(-1,1),lag.max=60,lwd=2)
+pacf(lngnp,ylim=c(-1,1),lag.max=60,lwd=2)
+par(mfrow=c(1,1))
+```
+
+#### Mean clearly non-constant because of a global linear trend => Non stationarity
+
+```{r}
+# Regular difference to remove global linear trend
+d1lngnp=diff(lngnp) #show difln equiv tasaincremrelativo ln(xt/xt-1)=(xt-xt-1)/xt-1
+plot(d1lngnp)
+abline(h=0)
+abline(h=mean(d1lngnp), col = 2)
+```
+
+### Compare Variances: Overdifferencing?
+
+```{r}
+var(lngnp)
+var(d1lngnp)
+var(diff(d1lngnp))
+```
+
+#### Extra regular difference not needed!
+
+### Is the transformed series already stationary? Plot both, the ACF and PACF, and decide!!
+
+```{r}
+# Now we have constant mean (different from zero!), constant variance and ACF with few significants lags => Stationarity
+par(mfrow=c(1,2))
+acf(d1lngnp,ylim=c(-1,1),lag.max=60,lwd=2)
+pacf(d1lngnp,ylim=c(-1,1),lag.max=60,lwd=2)
+par(mfrow=c(1,1))
+```
+
+### Summary: Series d1lngnp has constant mean and variance.ACF decaying rapidly towards 0. => Stationarity achieved
+
+$$W_t=(1-B)\log X_t=\log X_t-\log X_{t-1}$$
+```{r}
+par(mfrow=c(1,2))
+plot(gnp,main="X_t")
+plot(d1lngnp,main="W_t=(1-B)log(X_t)")
+abline(h=0)
+par(mfrow=c(1,1))
+
+```
+
+### 3. AirPassengers 
+
+Monthly Airline Passenger Numbers 1949-1960
+
+Description:  The classic Box & Jenkins airline data. Monthly totals of international airline passengers, 1949 to 1960.
+
+```{r}
+AirPassengers
+plot(AirPassengers,type="o")
+abline(v=1949:1961,col=4,lty=3)
+
+#LA: 
+(start(AirPassengers))
+(end(AirPassengers))
+(fq=frequency(AirPassengers))
+length(AirPassengers)
+```
+
+### Is Variance constant?
+
+```{r}
+boxplot(AirPassengers~floor(time(AirPassengers)))
+
+m=apply(matrix(AirPassengers,ncol=12),2,mean)
+v=apply(matrix(AirPassengers,ncol=12),2,var)
+plot(v~m,main="Mean-Variance plot")
+
+```
+
+#### Variance is not constant: higher when the level raises => Non-Stationarity
+
+```{r}
+# Logarithms of the data to stabilize the variance
+lnAirPassengers=log(AirPassengers)
+plot(lnAirPassengers,type="o")
+
+boxplot(lnAirPassengers~floor(time(lnAirPassengers)))
+
+m=apply(matrix(lnAirPassengers,ncol=12),2,mean)
+v=apply(matrix(lnAirPassengers,ncol=12),2,var)
+plot(v~m,main="Mean-Variance plot", ylim =c(0,0.03))
+
+```
+
+#### Now, the variance can be considered constant => Solved
+
+### Is there seasonality present?
+
+```{r}
+# Similar pattern each year (12 observations) implies seasonality => Non-Sationarity
+monthplot(lnAirPassengers)
+
+plot(decompose(lnAirPassengers))
+```
+
+```{r}
+# ACF decreasing slowly => non-stationarity
+acf(lnAirPassengers,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,11)),lwd=2)
+```
+```{r}
+# Difference of order 12 to remove the seasonal component
+d12lnAirPassengers<-diff(lnAirPassengers,lag=12)
+plot(d12lnAirPassengers,main="d12lnAirPassengers")
+abline(h=0)
+```
+
+#### Seasonality removed!
+
+### Is the mean constant?
+
+#### Not clear! Apply a regular fifference
+
+```{r}
+# Constant mean? Not clear! 
+# Another Regular Difference to remove unit roots
+
+d1d12lnAirPassengers<-diff(d12lnAirPassengers)
+plot(d1d12lnAirPassengers,main="d1d12lnAirPassengers")
+abline(h=0)
+```
+
+```{r}
+# Let's check the variances to decide the number of differences
+var(lnAirPassengers)
+var(d12lnAirPassengers)
+var(d1d12lnAirPassengers)
+var(diff(d1d12lnAirPassengers))
+
+```
+
+#### Extra regular difference not needed!
+
+### Is the transformed series already stationary? Plot both, the ACF and PACF, and decide!!
+
+```{r}
+# Constant mean, constant variance (!) and fast decay in the ACF =>Stationarity
+par(mfrow=c(1,2))
+acf(d1d12lnAirPassengers,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,11)),lwd=2)
+pacf(d1d12lnAirPassengers,ylim=c(-1,1),lag.max=60,col=c(rep(1,11),2),lwd=2)
+par(mfrow=c(1,1))
+```
+
+### Summary: Series d1d12lnAirPassengers has constant mean and variance.ACF decaying rapidly towards 0. => Stationarity achieved
+
+$$W_t=(1-B)(1-B^{12})\log X_t$$
+```{r}
+par(mfrow=c(1,2))
+plot(AirPassengers,main="X_t")
+plot(d1d12lnAirPassengers,main="W_t=(1-B)(1-B^{12})log(X_t)")
+abline(h=0)
+par(mfrow=c(1,1))
+
+```
+
+## Complementary Examples
+
+### I) A White Noise Process?
+
+### RANDOM Series
+
+200 observations of White Noise with variance=1 (independent!)
+
+```{r}
+# By fixing the seed of simulation, we can reproduce the pseudo-random sequence
+set.seed(123456)
+RANDOM=rnorm(200, mean=0, sd=1)
+ts.plot(RANDOM)
+abline(h=0)
+
+# Constant mean and variance are clear
+
+# Normal distribution verified:
+
+# Histogram with theoretical distribution overlaped
+hist(RANDOM,prob=T)
+curve(dnorm,col=2,add=T)
+
+# Normal-probability plot (quantile-qunatile)
+qqnorm(RANDOM)
+qqline(RANDOM,lwd=2,col=2)
+
+# Shapiro-Wilks Test for normality
+shapiro.test(RANDOM)
+
+
+# Independence verified:
+
+# All lags in the ACF/PACF are non-significant
+par(mfrow=c(1,2))
+acf(RANDOM,ylim=c(-1,1),lag.max=60,lwd=2)
+pacf(RANDOM,ylim=c(-1,1),lag.max=60,lwd=2)
+par(mfrow=c(1,1))
+
+# Durbin-Watson test for autocorrelation
+library(lmtest)
+dwtest(RANDOM~1)
+```
+
+### II) Seasonal or Cyclic Behavior?
+
+### SUNSPOT
+
+Yearly Sunspot Data, 1700-1988
+
+```{r}
+sunspot.year
+plot(sunspot.year,type="o")
+
+# It seems a similar pattern repeating, but the frequency is not constant!
+# It's not seasonality but cycles!!!
+# Difference is not a solution. AR(p) with large p is!
+par(mfrow=c(1,2))
+acf(sunspot.year,ylim=c(-1,1),lag.max=60,lwd=2)
+pacf(sunspot.year,ylim=c(-1,1),lag.max=60,lwd=2)
+par(mfrow=c(1,1))
+```
+
