@@ -1,0 +1,215 @@
+---
+title: 'Time Series Analysis: AIRBCN Data'
+output:
+  html_document: default
+  pdf_document: 
+    latex_engine: xelatex
+  word_document: default
+---
+
+# Time Series Analysis: Air Barcelona (AIRBCN)
+
+## Configuration and Data Loading
+
+```{r setup}
+# Set working directory and parameters
+data_file <- "HW_1_Transformations/AirBCN.dat"
+series_name <- "AIRBCN"
+
+start_year <- 1990
+start_period <- 1
+freq <- 12  
+period_length <- 12 
+xlabel <- "month"
+ylabel <- "passengers"
+```
+
+## 1. Load Data as Time Series Object
+
+```{r}
+# Read data
+data_raw <- read.table(data_file)
+series <- ts(data_raw[,1], start=c(start_year, start_period), frequency=freq)
+
+# Display properties
+cat("Series Name:", series_name, "\n")
+cat("Class:", class(series), "\n")
+cat("Length:", length(series), "observations\n")
+cat("Start:", start(series)[1], "Period", start(series)[2], "\n")
+cat("End:", end(series)[1], "Period", end(series)[2], "\n")
+cat("Frequency:", frequency(series), "\n\n")
+
+# Show first and last values
+head(series)
+tail(series)
+```
+
+## 2. Generate Graph and Describe Visual Characteristics
+The data seems to have an exponential trend, variance increasing with the level of the series, and some seasonal pattern.
+
+```{r plot_original}
+plot(series, type="o", main=series_name, ylab=ylabel, xlab=xlabel)
+abline(h=mean(series), col=2, lwd=2)
+grid()
+```
+
+## 3. Analyze Variance Constancy
+
+### 3.1 Mean-Variance Relationship
+Variance is highly correlated with the mean (0.964).
+```{r}
+# Create matrix for analysis (each column = one period)
+n_obs <- length(series)
+n_groups <- floor(n_obs / period_length)
+series_matrix <- matrix(series, ncol=n_groups)
+
+# Calculate mean and variance for each period
+m <- apply(series_matrix, 2, mean)
+v <- apply(series_matrix, 2, var)
+```
+
+```{r mean_variance_plot_original}
+# Mean-variance plot
+plot(v ~ m,
+  main=paste("Mean vs Variance:", series_name),
+  xlab=paste(period_length,"Period Mean", sep="-"), 
+  ylab=paste(period_length,"Period Variance", sep="-"), 
+  pch=19, col="blue",xaxt="n", yaxt="n")
+axis(1, at=axTicks(1), labels=paste0(round(axTicks(1)/1e6, 2), "Mn"))
+axis(2, at=axTicks(2), labels=paste0(round(axTicks(2)/1e9, 2), "Bn"))
+abline(lm(v ~ m))
+box()
+  
+# Correlation
+cat("Correlation between mean and variance:", round(cor(m, v), 3), "\n")
+```
+
+
+### 3.2 Boxplots for Different Periods
+The observations from the mean-variance plot are confirmed by the boxplots, which show increasing mean and higher box heights over time.
+```{r boxplots_original}
+boxplot(series ~ floor(time(series)), 
+        main=paste("Yearly Distributions:", series_name),
+        xlab="Year", ylab=ylabel, yaxt="n")
+axis(2, at=axTicks(2), labels=paste0(round(axTicks(2)/1e6, 2), "Mn"))
+```
+
+### 3.3 Apply Logarithmic Transformation
+The logarithmic transformation seem to stabilize the variance because the variation across time is more uniform.
+```{r log_transform}
+lnseries <- log(series)
+plot(lnseries, type="o", 
+  main=paste(series_name, "(ln transformed)"),
+  ylab=paste("ln(", ylabel, ")", sep=""),
+  xlab="")
+abline(h=mean(lnseries), col=2, lwd=2)
+```
+### 3.4 Re-assess Variance Constancy
+Correlation between mean and variance is significantly reduced to 0.307 but still need to check if variance is constant over time.
+```{r mean_variance_plot_log}
+series_matrix <- matrix(lnseries, ncol=n_groups)
+m <- apply(series_matrix, 2, mean)
+v <- apply(series_matrix, 2, var)
+
+plot(v ~ m, 
+  main=paste("Mean vs Variance:", series_name, "(ln transformed)"),
+  xlab=paste(period_length,"Period Mean", sep="-"), 
+  ylab=paste(period_length,"Period Variance", sep="-"), pch=19, col="blue")
+abline(lm(v ~ m), col=2, lwd=2)
+
+cat("Correlation (ln transformed):", round(cor(m, v), 3), "\n")
+```
+The boxplots show more consistent variance across years after log transformation. 
+```{r boxplots_log}
+boxplot(lnseries ~ floor(time(lnseries)), 
+        main=paste("Boxplots by Year:", series_name, "(ln transformed)"),
+        xlab="Year", ylab=paste("ln(", ylabel, ")", sep=""))
+    
+```
+The ln transformation appears to stabilize the variance. To achieve weak stationarity, the remaining task is to stabilize the mean and ensure the autocovariance depends only on lag. We do this by examining seasonal patterns and applying differencing as needed.
+
+```{r}
+# Update working series
+working_series_name <- paste("ln(", series_name, ")", sep="")
+working_ylabel <- paste("ln(", ylabel, ")", sep="")
+working_series <- lnseries
+```
+
+## 4. Examine Seasonal Patterns
+
+### 4.1 Time Series Plot (Zoom)
+The series shows a seasonal pattern with peak at the middle of each year and troughs at the start and end of each year.
+```{r seasonal_plot}
+# Plot a few years to visualize seasonality
+start_zoom <- start(working_series)[1]
+end_zoom <- min(start_zoom + 3, end(working_series)[1])
+
+plot(window(working_series, start=start_zoom, end=end_zoom), 
+     type="o", main=paste(working_series_name),
+     ylab=working_ylabel)
+abline(v=start_zoom:end_zoom, col=4, lty=3)
+```
+The monthly means show the seasonal patter, with  the highest in August and the lowest in January, February, November, and December. Note that there is still an upward for all months over the years.
+```{r monthly_means}
+# Monthplot 
+monthplot(working_series, main=paste("Month Plot:", series_name),
+            ylab=ylabel, xlab="Month")
+```
+
+### 4.3 Autocorrelation Function (ACF)
+ACF has slow decay and the 12-month seasonal cycle is more obvious. PACF confirms the 12-lag seasonality.
+```{r acf}
+par(mfrow=c(1,2))
+lag_colors <- c(2, rep(1, 11))  # Highlight lag 12
+acf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq),
+    col=lag_colors, lwd=2, main=paste("ACF:", working_series_name))
+
+pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+    col=lag_colors, lwd=2, main=paste("PACF:", working_series_name)
+)
+```
+### 4.4 Seasonal Differencing 
+We apply seasonal differencing with lag 12 to remove the seasonal component.
+```{r}
+lag = 12
+acf_values <- acf(working_series, plot=FALSE, lag.max=freq)$acf
+d12series <- diff(working_series, lag=lag)
+```
+The seasonally differenced series shows no obvious seasonal pattern.
+
+```{r}
+working_series_name <- paste0("Δ", lag, " ln(", series_name, ")", sep="")
+working_ylabel <- paste0("Δ", lag, " ln(", ylabel, ")", sep="")
+working_series <- d12series
+
+```
+## 5. Reassess Variance and Mean Consistency, and ACF
+The series do not have obvious trend or seasonality on the values, and pattern on the variation.
+```{r}
+par(mfrow=c(1,1))
+plot(working_series, main=working_series_name,type="l", ylab=working_ylabel) 
+abline(h=0, col=2, lwd=2)
+abline(h=mean(working_series), col=3, lty=2)
+```  
+
+The variance and mean seem to differ across years but the differentiation is small. 
+```{r}
+boxplot(working_series ~ floor(time(working_series)), 
+        main=paste("Boxplots by Year:", working_series_name),
+        xlab="Year", ylab=working_ylabel)
+    
+```
+
+ACF has fast decay which suggests stationarity. PACF shows high spikes at lag 1 and lag 2 indicating possible AR(1) or AR(2) structure.
+```{r acf_pacf_current}
+# ACF/PACF to check for non-stationarity
+par(mfrow=c(1,2))
+acf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+    lwd=2, main=paste("ACF:", working_series_name),
+)
+pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+     lwd=2, main=paste("PACF:", working_series_name),
+     col=c(2, rep(1, 59)))
+par(mfrow=c(1,1))
+```
+Overall, after applying a logarithmic transformation and seasonal differencing, the AIRBCN series appears to be weakly stationary with stabilized variance and mean. Further modeling can be pursued, possibly AR(1) or AR(2).
