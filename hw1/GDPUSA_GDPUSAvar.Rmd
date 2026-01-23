@@ -1,0 +1,198 @@
+# Financial Econometrics -- Problem Set 1
+
+Daniel Campos, Joshua Castillo & Cherryl Chico. January 23, 2026.
+
+## GDPUSA
+
+First of all, let us load the data.
+
+```{r}
+gdpusa <- ts(read.table("GDPUSA.dat"), start = 1947, freq = 4)
+gdpusa
+```
+
+We plot the time series to get a sense of its structure.
+
+```{r}
+plot(gdpusa, xlab = "Year", ylab = "US GDP (billions of USD)")
+```
+
+An overall upward trend in US GDP is clearly visible.
+
+### Is the variance constant?
+
+*Note: Grouping data every two years caused issues with some plots, so we opted to keep working with the time series as it is.*
+
+We divide the time series in three windows and plot each one in order to check whether the variance increases over time.
+
+```{r}
+win1 <- window(gdpusa, start = 1947, end = 1972)
+win2 <- window(gdpusa, start = 1972, end = 1997)
+win3 <- window(gdpusa, start = 1997, end = 2019)
+
+par(mfrow = c(1, 3))
+plot(win1, ylim = c(min(gdpusa), max(gdpusa)))
+plot(win2, ylim = c(min(gdpusa), max(gdpusa)))
+plot(win3, ylim = c(min(gdpusa), max(gdpusa)))
+```
+
+Although it appears to be the case, we also compute the boxplot for each window to verify our suspicion.
+
+```{r}
+par(mfrow = c(1, 3))
+boxplot(win1, ylim = c(min(gdpusa), max(gdpusa)))
+boxplot(win2, ylim = c(min(gdpusa), max(gdpusa)))
+boxplot(win3, ylim = c(min(gdpusa), max(gdpusa)))
+```
+
+It is evident that the variance is non-constant, increasing with the level of the time series. A logarithmic transformation is applied to fix this.
+
+```{r}
+lngdp <- log(gdpusa)
+plot(lngdp)
+```
+
+The previous plots are drawn again to confirm that the transformation has indeed stabilized the variance.
+
+```{r}
+lnwin1 <- window(lngdp, start = 1947, end = 1972)
+lnwin2 <- window(lngdp, start = 1972, end = 1997)
+lnwin3 <- window(lngdp, start = 1997, end = 2019)
+
+par(mfrow = c(1, 3))
+plot(lnwin1, ylim = c(min(lngdp), max(lngdp)))
+plot(lnwin2, ylim = c(min(lngdp), max(lngdp)))
+plot(lnwin3, ylim = c(min(lngdp), max(lngdp)))
+```
+
+```{r}
+par(mfrow = c(1, 3))
+boxplot(lnwin1, ylim = c(min(lngdp), max(lngdp)))
+boxplot(lnwin2, ylim = c(min(lngdp), max(lngdp)))
+boxplot(lnwin3, ylim = c(min(lngdp), max(lngdp)))
+```
+
+The Mean-Variance plot reinforces this.
+
+*Note: In this case, `ncol = 36` is chosen because it is the number that includes around 8 observations per point.*
+
+```{r}
+mean = apply(matrix(lngdp, ncol = 36), 2, mean)
+var = apply(matrix(lngdp, ncol = 36), 2, var)
+plot(var ~ mean, main = "Mean-Variance plot", ylim = c(0, 0.15))
+abline(lm(var ~ mean))
+```
+
+### Is seasonality present?
+
+No, as the time series has already been seasonally adjusted.
+
+### Is the mean constant?
+
+We can assess whether the mean is constant or not by computing the ACF and the PACF.
+
+```{r}
+par(mfrow = c(1, 2))
+acf(lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
+
+As we can observe, the mean is not constant, which goes in line with the fact that the time series presents an overall upward trend.
+
+Nevertheless, since such trend is linear, it is possible to get rid of it by differentiating.
+
+```{r}
+par(mfrow = c(1, 1))
+d1lngdp <- diff(lngdp)
+plot(d1lngdp)
+abline(h = 0)
+abline(h = mean(d1lngdp), col = 2)
+```
+
+As we can observe, the plot has changed drastically, and now constant mean (different from 0) is noticeable.
+
+Moreover, comparing variances allows us to analyze if extra differences are needed.
+
+```{r}
+formatC(var(lngdp), format = "f", digits = 7)
+formatC(var(d1lngdp), format = "f", digits = 7)
+formatC(var(diff(d1lngdp)), format = "f", digits = 7)
+```
+
+The variance decreases substantially after computing the first difference, but it barely moves from the first to the second. Thus, no extra differences should be added.
+
+Let us now plot the updated ACF and PACF.
+
+```{r}
+par(mfrow = c(1, 2))
+acf(d1lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(d1lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
+
+The ACF swiftly decays to 0, meaning that only the very first lags are significant.
+
+**The transformed time series is stationary.**
+
+```{r}
+par(mfrow = c(1, 2))
+plot(gdpusa, main = "X_t")
+plot(d1lngdp, main = "W_t")
+abline(h = 0)
+```
+
+
+## GDPUSAvar
+
+Firstly, we import the data.
+
+```{r}
+gdpusavar <- ts(read.table("gdpusavar.dat"), start = 1990, freq = 4)
+gdpusavar
+```
+
+We plot the time series so as to visualize its shape.
+
+```{r}
+plot(gdpusavar, xlab = "Year", ylab = "US GDP (quarterly change in %)", type = "o")
+abline(h = mean(gdpusavar), col = 2)
+```
+
+In this case, since data is on the quarterly rate of change of US GDP, we observe a time series that fluctuates between positive and negative values, with the biggest outliers happening in 2008, coinciding with that year's financial crisis.
+
+### Is the variance constant?
+
+*Note: Grouping data every two years caused issues with some plots, so we opted to keep working with the time series as it is.*
+
+Let us compute the boxplot for each year in the time series.
+
+```{r}
+boxplot(gdpusavar ~ floor(time(gdpusavar)))
+```
+
+```{r}
+mean = apply(matrix(gdpusavar, ncol = 15), 2, mean)
+var = apply(matrix(gdpusavar, ncol = 15), 2, var)
+plot(var ~ mean, main = "Mean-Variance plot")
+```
+
+### Is seasonality present?
+
+No, as the time series has already been seasonally adjusted.
+
+### Is the mean constant?
+
+```{r}
+plot(gdpusavar, xlab = "Year", ylab = "US GDP (quarterly change in %)")
+abline(h = mean(gdpusavar), col = 2)
+```
+
+```{r}
+formatC(var(gdpusavar), format = "f", digits = 7)
+formatC(var(diff(gdpusavar)), format = "f", digits = 7)
+```
+
+```{r}
+par(mfrow = c(1, 2))
+acf(gdpusavar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(gdpusavar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
