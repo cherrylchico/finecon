@@ -169,10 +169,36 @@ Let us compute the boxplot for each year in the time series.
 boxplot(gdpusavar ~ floor(time(gdpusavar)))
 ```
 
+We notice that the variances differ between periods, even without considering the 2008 outlier. Specifically, the variance observed in the early years of the time series is higher than in the later years.
+
+The Mean-Variance plot is computed to confirm this.
+
 ```{r}
 mean = apply(matrix(gdpusavar, ncol = 15), 2, mean)
 var = apply(matrix(gdpusavar, ncol = 15), 2, var)
 plot(var ~ mean, main = "Mean-Variance plot")
+abline(lm(var ~ mean))
+```
+
+Indeed, the variance decreases as the mean increases. To fix this, a logarithmic transformation is applied. Moreover, a constant is added so as to avoid negative values, which would lead to NaNs.
+
+```{r}
+c <- abs(min(gdpusavar)) + 1
+lngdpvar <- log(gdpusavar + c)
+plot(lngdpvar)
+```
+
+The previous plot shows that the variance has been largely stabilized, except for the prominent outlier corresponding to the 2008 financial crisis. We recompute the boxplots and the Mean-Variance plot to ensure this.
+
+```{r}
+boxplot(lngdpvar ~ floor(time(lngdpvar)))
+```
+
+```{r}
+mean = apply(matrix(lngdpvar, ncol = 15), 2, mean)
+var = apply(matrix(lngdpvar, ncol = 15), 2, var)
+plot(var ~ mean, main = "Mean-Variance plot")
+abline(lm(var ~ mean))
 ```
 
 ### Is seasonality present?
@@ -182,17 +208,32 @@ No, as the time series has already been seasonally adjusted.
 ### Is the mean constant?
 
 ```{r}
-plot(gdpusavar, xlab = "Year", ylab = "US GDP (quarterly change in %)")
-abline(h = mean(gdpusavar), col = 2)
+plot(lngdpvar, xlab = "Year", ylab = "US GDP (quarterly change in %)")
+abline(h = mean(lngdpvar), col = 2)
 ```
 
+An initial inspection of the data shows that the mean can indeed be considered constant.
+
+Moreover, taking the first difference yields results contrary to what we would expect if differencing were stabilizing the mean.
+
 ```{r}
-formatC(var(gdpusavar), format = "f", digits = 7)
-formatC(var(diff(gdpusavar)), format = "f", digits = 7)
+formatC(var(lngdpvar), format = "f", digits = 7)
+formatC(var(diff(lngdpvar)), format = "f", digits = 7)
 ```
+
+Finally, both the ACF and PACF support the conclusion that the mean is constant, with the ACF values declining rapidly to zero.
 
 ```{r}
 par(mfrow = c(1, 2))
-acf(gdpusavar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
-pacf(gdpusavar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+acf(lngdpvar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(lngdpvar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
+
+**The transformed time series is stationary.**
+
+```{r}
+par(mfrow = c(1, 2))
+plot(gdpusavar, main = "X_t")
+plot(lngdpvar, main = "W_t")
+abline(h = 0)
 ```
