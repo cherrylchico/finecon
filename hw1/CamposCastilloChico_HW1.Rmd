@@ -1,0 +1,734 @@
+---
+title: 'Financial Econometrics Practice TS #1'
+subtitle: Daniel Campos, Joshua Castillo, & Cherryl Chico; January 23, 2026
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(MASS)
+```
+
+# 1. Gross Domestic Product (GDP) of the United States
+
+First of all, let us load the data.
+
+```{r}
+gdpusa <- ts(read.table("GDPUSA.dat", header = F), start = 1947, freq = 4)
+gdpusa
+```
+
+We plot the time series to get a sense of its structure.
+
+```{r}
+plot(gdpusa, xlab = "Year", ylab = "US GDP (billions of USD)")
+```
+
+An overall upward trend in US GDP is clearly visible.
+
+### Is the variance constant?
+
+*Note: Grouping data every two years caused issues with some plots, so we opted to keep working with the time series as it is.*
+
+We divide the time series in three windows and plot each one in order to check whether the variance increases over time.
+
+```{r}
+win1 <- window(gdpusa, start = 1947, end = 1972)
+win2 <- window(gdpusa, start = 1972, end = 1997)
+win3 <- window(gdpusa, start = 1997, end = 2019)
+
+par(mfrow = c(1, 3))
+plot(win1, ylim = c(min(gdpusa), max(gdpusa)))
+plot(win2, ylim = c(min(gdpusa), max(gdpusa)))
+plot(win3, ylim = c(min(gdpusa), max(gdpusa)))
+```
+
+Although it appears to be the case, we also compute the boxplot for each window to verify our suspicion.
+
+```{r}
+par(mfrow = c(1, 3))
+boxplot(win1, ylim = c(min(gdpusa), max(gdpusa)))
+boxplot(win2, ylim = c(min(gdpusa), max(gdpusa)))
+boxplot(win3, ylim = c(min(gdpusa), max(gdpusa)))
+```
+
+It is evident that the variance is non-constant, increasing with the level of the time series. A logarithmic transformation is applied to fix this.
+
+```{r}
+lngdp <- log(gdpusa)
+plot(lngdp)
+```
+
+The previous plots are drawn again to confirm that the transformation has indeed stabilized the variance.
+
+```{r}
+lnwin1 <- window(lngdp, start = 1947, end = 1972)
+lnwin2 <- window(lngdp, start = 1972, end = 1997)
+lnwin3 <- window(lngdp, start = 1997, end = 2019)
+
+par(mfrow = c(1, 3))
+plot(lnwin1, ylim = c(min(lngdp), max(lngdp)))
+plot(lnwin2, ylim = c(min(lngdp), max(lngdp)))
+plot(lnwin3, ylim = c(min(lngdp), max(lngdp)))
+```
+
+```{r}
+par(mfrow = c(1, 3))
+boxplot(lnwin1, ylim = c(min(lngdp), max(lngdp)))
+boxplot(lnwin2, ylim = c(min(lngdp), max(lngdp)))
+boxplot(lnwin3, ylim = c(min(lngdp), max(lngdp)))
+```
+
+The Mean-Variance plot reinforces this.
+
+*Note: In this case, `ncol = 36` is chosen because it is the number that includes around 8 observations per point.*
+
+```{r}
+mean = apply(matrix(lngdp, ncol = 36), 2, mean)
+var = apply(matrix(lngdp, ncol = 36), 2, var)
+plot(var ~ mean, main = "Mean-Variance plot", ylim = c(0, 0.15))
+abline(lm(var ~ mean))
+```
+
+### Is seasonality present?
+
+No, as the time series has already been seasonally adjusted.
+
+### Is the mean constant?
+
+We can assess whether the mean is constant or not by computing the ACF and the PACF.
+
+```{r}
+par(mfrow = c(1, 2))
+acf(lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
+
+As we can observe, the mean is not constant, which goes in line with the fact that the time series presents an overall upward trend.
+
+Nevertheless, since such trend is linear, it is possible to get rid of it by differentiating.
+
+```{r}
+par(mfrow = c(1, 1))
+d1lngdp <- diff(lngdp)
+plot(d1lngdp)
+abline(h = 0)
+abline(h = mean(d1lngdp), col = 2)
+```
+
+As we can observe, the plot has changed drastically, and now constant mean (different from 0) is noticeable.
+
+Moreover, comparing variances allows us to analyze if extra differences are needed.
+
+```{r}
+formatC(var(lngdp), format = "f", digits = 7)
+formatC(var(d1lngdp), format = "f", digits = 7)
+formatC(var(diff(d1lngdp)), format = "f", digits = 7)
+```
+
+The variance decreases substantially after computing the first difference, but it barely moves from the first to the second. Thus, no extra differences should be added.
+
+Let us now plot the updated ACF and PACF.
+
+```{r}
+par(mfrow = c(1, 2))
+acf(d1lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(d1lngdp, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
+
+The ACF swiftly decays to 0, meaning that only the very first lags are significant.
+
+**The transformed time series is stationary.**
+
+```{r}
+par(mfrow = c(1, 2))
+plot(gdpusa, main = "X_t")
+plot(d1lngdp, main = "W_t")
+abline(h = 0)
+```
+
+
+## 2. Percentage Variation from the Previous Period of the GDP of the United States
+
+Firstly, we import the data.
+
+```{r}
+gdpusavar <- ts(read.table("gdpusavar.dat"), start = 1990, freq = 4)
+gdpusavar
+```
+
+We plot the time series so as to visualize its shape.
+
+```{r}
+plot(gdpusavar, xlab = "Year", ylab = "US GDP (quarterly change in %)", type = "o")
+abline(h = mean(gdpusavar), col = 2)
+```
+
+In this case, since data is on the quarterly rate of change of US GDP, we observe a time series that fluctuates between positive and negative values, with the biggest outliers happening in 2008, coinciding with that year's financial crisis.
+
+### Is the variance constant?
+
+*Note: Grouping data every two years caused issues with some plots, so we opted to keep working with the time series as it is.*
+
+Let us compute the boxplot for each year in the time series.
+
+```{r}
+boxplot(gdpusavar ~ floor(time(gdpusavar)))
+```
+
+```{r}
+mean = apply(matrix(gdpusavar, ncol = 15), 2, mean)
+var = apply(matrix(gdpusavar, ncol = 15), 2, var)
+plot(var ~ mean, main = "Mean-Variance plot")
+```
+
+### Is seasonality present?
+
+No, as the time series has already been seasonally adjusted.
+
+### Is the mean constant?
+
+```{r}
+plot(gdpusavar, xlab = "Year", ylab = "US GDP (quarterly change in %)")
+abline(h = mean(gdpusavar), col = 2)
+```
+
+```{r}
+formatC(var(gdpusavar), format = "f", digits = 7)
+formatC(var(diff(gdpusavar)), format = "f", digits = 7)
+```
+
+```{r}
+par(mfrow = c(1, 2))
+acf(gdpusavar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+pacf(gdpusavar, ylim = c(-1, 1), lag.max = 60, lwd = 2)
+```
+
+
+# 3. Monthly Average Exchange Rate of the Euro
+
+### Data Loading and Verification
+First we load the data by indicating the starting year and setting freq = 12 to denote monthly data. We view the loaded data in ts format and verify its attributes.
+
+```{r load-euro}
+eurodol <- ts(read.table("eurodol.dat", header = F), start = 1995, freq = 12)
+eurodol
+str(eurodol)
+```
+
+### Initial Visualization
+
+Now, we plot the data and visualize the time series. I've included lines to denote the different years and the average of the time series as well.
+
+```{r plot-euro}
+plot(eurodol,
+main = "Monthly Average Exchange Rate of the Euro against the Dollar",
+ylim = c(0, max(eurodol) + 0.1),
+ylab = "Average Exchange Rate")
+abline(v = 1995:2020, col = 4, lty = 3)
+abline(h = mean(eurodol), col = 2)
+```
+
+We see from the graph immediately a non-monotonic trend due to crashes from the late 90s to early 00s and a spike right before the 2010s. Non-constant variance is immediately noticeable. There are a few indicators of yearly seasonality where peaks are generally experienced in the middle of the year and drop or spike going into the next year.
+
+### Variance Assessment
+
+Now we formally assess the variance with the boxplots and mean-variance plots.
+
+```{r variance-assessment-euro}
+# Boxplot
+boxplot(eurodol ~ floor(time(eurodol)), main="Boxplot Original")
+# Mean-Variance Plot
+mn <- apply(matrix(eurodol, ncol=20), 2, mean)
+var_val <- apply(matrix(eurodol, ncol=20), 2, var)
+plot(var_val ~ mn, main="Mean-Variance Plot")
+abline(lm(var_val ~ mn))
+```
+
+We can clearly observe non-constant mean. Since we are dealing with financial data, we transform with the log-transform and compare graphs again.
+
+```{r log-transform-euro}
+lneurodol <- log(eurodol)
+par(mfrow = c(2, 2))
+# Boxplots
+boxplot(eurodol ~ floor(time(eurodol)), main = "Boxplot (Original)")
+boxplot(lneurodol ~ floor(time(lneurodol)), main = "Boxplot (Log Transformed)")
+# Mean-Variance Plots
+lnmn <- apply(matrix(lneurodol, ncol=20), 2, mean)
+lnvar <- apply(matrix(lneurodol, ncol=20), 2, var)
+plot(lnvar ~ lnmn, main="Mean-Variance (Log)")
+abline(lm(lnvar ~ lnmn))
+mn <- apply(matrix(eurodol, ncol=20), 2, mean)
+var_val <- apply(matrix(eurodol, ncol=20), 2, var)
+plot(var_val ~ mn, main="Mean-Variance (Original)")
+abline(lm(var_val ~ mn))
+par(mfrow = c(1, 1))
+```
+
+### Box-Cox Transformation
+Because the variance is not clearly constant, we double check with a box-cox transformation.
+
+```{r boxcox-euro}
+# 1. Run the Box-Cox function
+bc <- boxcox(eurodol + 1 ~ 1, plotit = TRUE)
+# 2. Extract the exact lambda
+optimal_lambda <- bc$x[which.max(bc$y)]
+optimal_lambda
+```
+
+Since the optimal lambda is near 2, we can consider a squared transformation of our variable and compare it to the log transform.
+
+```{r compare-transforms-euro}
+bceurodol <- (eurodol^optimal_lambda - 1) / optimal_lambda
+par(mfrow = c(2, 2))
+boxplot(bceurodol ~ floor(time(bceurodol)), main = "Boxplot (Square)")
+boxplot(lneurodol ~ floor(time(lneurodol)), main = "Boxplot (Log)")
+bcmn <- apply(matrix(bceurodol, ncol=20), 2, mean)
+bcvar <- apply(matrix(bceurodol, ncol=20), 2, var)
+plot(bcvar ~ bcmn, main="M-V Plot (Square)")
+abline(lm(bcvar ~ bcmn))
+plot(lnvar ~ lnmn, main="M-V Plot (Log)")
+abline(lm(lnvar ~ lnmn))
+par(mfrow = c(1, 1))
+```
+
+### Seasonality Check
+
+Now we formally check for seasonality.
+
+```{r seasonality-euro}
+monthplot(lneurodol)
+plot(decompose(lneurodol))
+acf(lneurodol, ylim = c(-1,1), lag.max = 60, col = c(2,rep(1,11)), lwd=2, main = "ACF Plot")
+```
+
+We see from both the monthplot and the seasonal section of the decomposition plots that seasonality clearly exists at a yearly level, hence we adjust for it. The ACF plot reinforces the non-stationarity of the current series as well.
+
+### Seasonal Differencing
+
+```{r seasonal-diff-euro}
+d12lneurodol <- diff(lneurodol, lag = 12)
+plot(d12lneurodol,
+main = "Seasonally Adjusted Log Euro/Dollar",
+ylab = "Log Average Exchange Rate")
+abline(v = 1995:2020, col = 4, lty = 3)
+abline(h = mean(d12lneurodol), col = 2)
+```
+
+### Automatic Differencing Function
+We apply regular differencing until variance increases.
+
+```{r auto-diff-function}
+auto_diff <- function(x) {
+orig_name <- deparse(substitute(x))
+best_series <- x
+best_var <- var(best_series, na.rm = TRUE)
+diff_count <- 0
+cat("Initial Variance:", best_var, "\n")
+repeat {
+trial_series <- diff(best_series)
+trial_var <- var(trial_series, na.rm = TRUE)
+if (trial_var >= best_var) {
+if (diff_count == 0) {
+cat("Original series is optimal.\n")
+} else {
+cat("Variance increased to", trial_var, ". Stopping at", diff_count, "diff(s).\n")
+}
+break
+}
+best_series <- trial_series
+best_var <- trial_var
+diff_count <- diff_count + 1
+cat("Difference", diff_count, "applied. New Variance:", best_var, "\n")
+if (diff_count >= 20) break
+}
+if (diff_count > 0) {
+new_name <- paste0(paste(rep("d1", diff_count), collapse = ""), orig_name)
+assign(new_name, best_series, pos = 1)
+}
+return(invisible(best_series))
+}
+# Run the function
+auto_diff(d12lneurodol)
+```
+
+### Final Stationary Series
+
+After applying the function, we obtain the series d1d12lneurodol.
+
+```{r final-plot-euro}
+par(mfrow = c(2, 1))
+plot(d1d12lneurodol,
+main = "Detrended & Seasonally Adjusted Log Euro/Dollar",
+ylab = "Log Average Exchange Rate")
+abline(v = 1995:2020, col = 4, lty = 3)
+abline(h = mean(d1d12lneurodol), col = 2)
+acf(d1d12lneurodol, ylim = c(-1,1), lag.max = 60, col = c(2,rep(1,11)), lwd=2, main = "ACF Plot")
+par(mfrow = c(1, 1))
+```
+
+
+# 4. Number of Individuals Registered as Unemployed (INEM)
+
+First we load the data by indicating the starting year and setting freq = 12 to denote monthly data. We view the loaded data in ts format and verify its attributes. We also plot the data and visualize the time series. I've included lines to denote the different years and the average of the time series as well.
+
+### Data Loading and Initial Plot
+
+```{r load-atur}
+atur <- ts(read.table("Atur.dat", header = F), start = 1996, freq = 12)
+plot(atur,
+main = "Monthly Registered Unemployed (INEM)",
+ylab = "Number of Individuals")
+abline(v = 1996:2019, col = 4, lty = 3)
+abline(h = mean(atur), col = 2)
+```
+
+We see from the graph immediately a trend due to abrupt changes from 2007 to 2010. Non-constant variance is not immediately noticeable. There are a few indicators of yearly seasonality where dips are generally experienced in the middle of the year and drop or spike going into the next year. Now we formally assess the variance with the boxplots and mean-variance plots. 
+
+### Variance Stabilization
+
+```{r variance-atur}
+boxplot(atur ~ floor(time(atur)), main="Boxplot Unemployed")
+mn <- apply(matrix(atur, ncol=20), 2, mean)
+var_val <- apply(matrix(atur, ncol=20), 2, var)
+plot(var_val ~ mn, main="Mean-Variance Plot")
+abline(lm(var_val ~ mn))
+```
+
+For the most part, we can see that variance is the similar for most years except in the period from 2007 to 2010 where variance jumps (as seen with the long IQRs and outliers in the mean-variance plot). We apply log transformation to stabilize the variance and lessen the impact of shocks.
+
+```{r log-atur}
+lnatur <- log(atur)
+par(mfrow = c(2, 2))
+boxplot(atur ~ floor(time(atur)), main = "Original")
+boxplot(lnatur ~ floor(time(lnatur)), main = "Log Transformed")
+lnmn <- apply(matrix(lnatur, ncol=20), 2, mean)
+lnvar <- apply(matrix(lnatur, ncol=20), 2, var)
+plot(lnvar ~ lnmn, main="M-V Log")
+abline(lm(lnvar ~ lnmn))
+plot(var_val ~ mn, main="M-V Original")
+abline(lm(var_val ~ mn))
+par(mfrow = c(1, 1))
+```
+
+We now observe, especially in the mean-variance plot, that variance is now more constant even in the presence of outliers. We now observe for seasonality and differencing.
+
+### Seasonality and Differencing
+
+```{r seasonality-atur}
+monthplot(lnatur)
+plot(decompose(lnatur))
+acf(lnatur, ylim = c(-1,1), lag.max = 60, col = c(2,rep(1,11)), lwd=2)
+d12lnatur <- diff(lnatur, lag = 12)
+auto_diff(d12lnatur)
+```
+
+We see from both the monthplot and the seasonal section of the decomposition plots that seasonality clearly exists at a yearly level, hence we adjust for it. The ACF plot reinforces the non-stationarity of the current series as well. We remove seasonality.
+
+From the resulting plot too, a trend is clearly seen as the mean is not constant especially at the shock. We apply regular differencing until variance increases. For this, we use a function that applies differencing until the variance of the series increases. It returns the previously differenced series when true.
+
+To access the new series, we open out environment and look for a series containing d1. After applying the function, we obtain the series d1d12lnatur, meaning we applied one difference. 
+
+### Final Stationary Series (Unemployment)
+
+We now see the detrended plot of the time series. We also check the ACF plot for non-stationarity.
+
+```{r final-plot-atur}
+par(mfrow = c(2, 1))
+plot(d1d12lnatur,
+main = "Final Stationary Unemployment Series",
+ylab = "Log Number of Individuals")
+abline(v = 1996:2019, col = 4, lty = 3)
+abline(h = mean(d1d12lnatur), col = 2)
+acf(d1d12lnatur, ylim = c(-1,1), lag.max = 60, col = c(2,rep(1,11)), lwd=2)
+par(mfrow = c(1, 1))
+```
+
+Now we stop as have obtained a stationary time series as seen from both the time series plot and ACF plot.
+
+
+# 5. Number of Monthly International Flight Passengers at El Prat (BCN)
+
+## Configuration and Data Loading
+
+```{r}
+# Set working directory and parameters
+data_file <- "AirBCN.dat"
+series_name <- "AIRBCN"
+
+start_year <- 1990
+start_period <- 1
+freq <- 12  
+period_length <- 12 
+xlabel <- "month"
+ylabel <- "passengers"
+```
+
+## 1. Load Data as Time Series Object
+
+```{r}
+# Read data
+data_raw <- read.table(data_file)
+series <- ts(data_raw[,1], start=c(start_year, start_period), frequency=freq)
+
+# Display properties
+cat("Series Name:", series_name, "\n")
+cat("Class:", class(series), "\n")
+cat("Length:", length(series), "observations\n")
+cat("Start:", start(series)[1], "Period", start(series)[2], "\n")
+cat("End:", end(series)[1], "Period", end(series)[2], "\n")
+cat("Frequency:", frequency(series), "\n\n")
+
+# Show first and last values
+head(series)
+tail(series)
+```
+
+## 2. Generate Graph and Describe Visual Characteristics
+The data seems to have an exponential trend, variance increasing with the level of the series, and some seasonal pattern.
+
+```{r plot_original}
+plot(series, type="o", main=series_name, ylab=ylabel, xlab=xlabel)
+abline(h=mean(series), col=2, lwd=2)
+grid()
+```
+
+## 3. Analyze Variance Constancy
+
+### 3.1 Mean-Variance Relationship
+Variance is highly correlated with the mean (0.964).
+```{r}
+# Create matrix for analysis (each column = one period)
+n_obs <- length(series)
+n_groups <- floor(n_obs / period_length)
+series_matrix <- matrix(series, ncol=n_groups)
+
+# Calculate mean and variance for each period
+m <- apply(series_matrix, 2, mean)
+v <- apply(series_matrix, 2, var)
+```
+
+```{r mean_variance_plot_original}
+# Mean-variance plot
+plot(v ~ m,
+  main=paste("Mean vs Variance:", series_name),
+  xlab=paste(period_length,"Period Mean", sep="-"), 
+  ylab=paste(period_length,"Period Variance", sep="-"), 
+  pch=19, col="blue",xaxt="n", yaxt="n")
+axis(1, at=axTicks(1), labels=paste0(round(axTicks(1)/1e6, 2), "Mn"))
+axis(2, at=axTicks(2), labels=paste0(round(axTicks(2)/1e9, 2), "Bn"))
+abline(lm(v ~ m))
+box()
+  
+# Correlation
+cat("Correlation between mean and variance:", round(cor(m, v), 3), "\n")
+```
+
+
+### 3.2 Boxplots for Different Periods
+The observations from the mean-variance plot are confirmed by the boxplots, which show increasing mean and higher box heights over time.
+```{r boxplots_original}
+boxplot(series ~ floor(time(series)), 
+        main=paste("Yearly Distributions:", series_name),
+        xlab="Year", ylab=ylabel, yaxt="n")
+axis(2, at=axTicks(2), labels=paste0(round(axTicks(2)/1e6, 2), "Mn"))
+```
+
+### 3.3 Apply Logarithmic Transformation
+The logarithmic transformation seem to stabilize the variance because the variation across time is more uniform.
+```{r log_transform}
+lnseries <- log(series)
+plot(lnseries, type="o", 
+  main=paste(series_name, "(ln transformed)"),
+  ylab=paste("ln(", ylabel, ")", sep=""),
+  xlab="")
+abline(h=mean(lnseries), col=2, lwd=2)
+```
+
+### 3.4 Re-assess Variance Constancy
+
+Correlation between mean and variance is significantly reduced to 0.307 but still need to check if variance is constant over time.
+
+```{r mean_variance_plot_log}
+series_matrix <- matrix(lnseries, ncol=n_groups)
+m <- apply(series_matrix, 2, mean)
+v <- apply(series_matrix, 2, var)
+
+plot(v ~ m, 
+  main=paste("Mean vs Variance:", series_name, "(ln transformed)"),
+  xlab=paste(period_length,"Period Mean", sep="-"), 
+  ylab=paste(period_length,"Period Variance", sep="-"), pch=19, col="blue")
+abline(lm(v ~ m), col=2, lwd=2)
+
+cat("Correlation (ln transformed):", round(cor(m, v), 3), "\n")
+```
+
+The boxplots show more consistent variance across years after log transformation. 
+
+```{r boxplots_log}
+boxplot(lnseries ~ floor(time(lnseries)), 
+        main=paste("Boxplots by Year:", series_name, "(ln transformed)"),
+        xlab="Year", ylab=paste("ln(", ylabel, ")", sep=""))
+    
+```
+
+The ln transformation appears to stabilize the variance. To achieve weak stationarity, the remaining task is to stabilize the mean and ensure the autocovariance depends only on lag. We do this by examining seasonal patterns and applying differencing as needed.
+
+
+```{r}
+# Update working series
+working_series_name <- paste("ln(", series_name, ")", sep="")
+working_ylabel <- paste("ln(", ylabel, ")", sep="")
+working_series <- lnseries
+```
+
+
+## 4. Examine Seasonal Patterns
+
+### 4.1 Time Series Plot (Zoom)
+
+The series shows a seasonal pattern with peak at the middle of each year and troughs at the start and end of each year.
+
+```{r seasonal_plot}
+# Plot a few years to visualize seasonality
+start_zoom <- start(working_series)[1]
+end_zoom <- min(start_zoom + 3, end(working_series)[1])
+
+plot(window(working_series, start=start_zoom, end=end_zoom), 
+     type="o", main=paste(working_series_name),
+     ylab=working_ylabel)
+abline(v=start_zoom:end_zoom, col=4, lty=3)
+```
+
+The monthly means show the seasonal patter, with  the highest in August and the lowest in January, February, November, and December. Note that there is still an upward for all months over the years.
+
+```{r monthly_means}
+# Monthplot 
+monthplot(working_series, main=paste("Month Plot:", series_name),
+            ylab=ylabel, xlab="Month")
+```
+
+### 4.3 Autocorrelation Function (ACF)
+
+ACF has slow decay and the 12-month seasonal cycle is more obvious. PACF confirms the 12-lag seasonality.
+
+```{r acf}
+par(mfrow=c(1,2))
+lag_colors <- c(2, rep(1, 11))  # Highlight lag 12
+acf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq),
+    col=lag_colors, lwd=2, main=paste("ACF:", working_series_name))
+
+pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+    col=lag_colors, lwd=2, main=paste("PACF:", working_series_name)
+)
+```
+
+### 4.4 Seasonal Differencing 
+We apply seasonal differencing with lag 12 to remove the seasonal component.
+
+```{r}
+lag = 12
+acf_values <- acf(working_series, plot=FALSE, lag.max=freq)$acf
+d12series <- diff(working_series, lag=lag)
+```
+
+
+```{r}
+working_series_name <- paste0("Δ", lag, " ln(", series_name, ")", sep="")
+working_ylabel <- paste0("Δ", lag, " ln(", ylabel, ")", sep="")
+working_series <- d12series
+
+```
+
+## 5. Reassess Variance and Mean Consistency, and ACF
+The series do not have obvious trend or seasonality on the values, and pattern on the variation.
+
+```{r}
+par(mfrow=c(1,1))
+plot(working_series, main=working_series_name,type="l", ylab=working_ylabel) 
+abline(h=0, col=2, lwd=2)
+abline(h=mean(working_series), col=3, lty=2)
+```  
+
+The variance and mean still seem to differ across years. 
+
+```{r}
+boxplot(working_series ~ floor(time(working_series)), 
+        main=paste("Boxplots by Year:", working_series_name),
+        xlab="Year", ylab=working_ylabel)
+    
+```
+
+ACF has fast decay which suggests stationarity. PACF shows high spikes at lag 1 and lag 2. We can still try to improve the stationarity by performing 1-lag differencing.
+
+```{r acf_pacf_current}
+# ACF/PACF to check for non-stationarity
+par(mfrow=c(1,2))
+acf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+    lwd=2, main=paste("ACF:", working_series_name),
+)
+pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+     lwd=2, main=paste("PACF:", working_series_name),
+     col=c(2, rep(1, 59)))
+par(mfrow=c(1,1))
+```
+# 6. Perform 1 lag differencing
+
+We apply 1-d differencing.
+
+```{r}
+lag = 1
+acf_values <- acf(working_series, plot=FALSE, lag.max=freq)$acf
+d1d12series <- diff(working_series, lag=lag)
+```
+
+
+```{r}
+working_series_name <- paste0("Δ", lag," ",working_series_name)
+working_ylabel <- paste0("Δ", lag, " ",working_ylabel)
+working_series <- d1d12series
+
+```
+
+## 6.1 Reassess Variance and Mean Consistency, and ACF
+
+
+```{r}
+par(mfrow=c(1,1))
+plot(working_series, main=working_series_name,type="l", ylab=working_ylabel) 
+abline(h=0, col=2, lwd=2)
+abline(h=mean(working_series), col=3, lty=2)
+```  
+
+The mean seem to be constant and the variance closer with each other. 
+
+```{r}
+boxplot(working_series ~ floor(time(working_series)), 
+        main=paste("Boxplots by Year:", working_series_name),
+        xlab="Year", ylab=working_ylabel)
+    
+```
+
+Both ACF and PACF suggests stationarity because of the rapid decay and less number of strong PACF. This can be modeled using ARMA.
+
+```{r acf_pacf_final}
+# ACF/PACF to check for non-stationarity
+par(mfrow=c(1,2))
+acf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+    lwd=2, main=paste("ACF:", working_series_name),
+)
+pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
+     lwd=2, main=paste("PACF:", working_series_name),
+     col=c(2, rep(1, 59)))
+par(mfrow=c(1,1))
+```
+
+
+Overall, after applying a logarithmic transformation, seasonal differencing, and 1-period differencing,  the AIRBCN series appears to be weakly stationary with stabilized variance and mean. 
+
+
+
+
