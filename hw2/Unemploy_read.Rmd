@@ -1,0 +1,21 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+## Unemploy
+
+https://expinterweb.mites.gob.es/series/
+
+
+```{r}
+serie=window(ts(read.table("unemploy.dat",dec=",")/1e6,start=1996,freq=12),start=c(2000),end=c(2025,12))
+(round(serie,3))
+```
+```{r}
+plot(serie,main="Unemploy Spain")
+abline(v=1996:2026,col=4,lty=3)
+
+```
+

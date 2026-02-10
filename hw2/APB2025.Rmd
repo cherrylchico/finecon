@@ -1,0 +1,478 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+## APB
+Data come from the website of the Ministry of Public Works of Spain (www.fomento.es) in paragraph Statistical Information / Bulletin On-line / Shipping / 1.8 Port traffic in the port of Barcelona and correspond to the millions of tones from the port traffic in Barcelona.
+
+https://apps.fomento.gob.es/BoletinOnline/?nivel=2&orden=04000000
+
+# ARIMA Model
+```{r}
+serie=window(ts(read.table("apb2025.dat")[,1]/1000,start=1997,freq=12),start=1997)
+print(round(serie,0))
+```
+
+```{r}
+plot(serie,main="Millions of Tons of Port Cargo Traffic at the Port of Barcelona",ylim=c(1500,6600))
+abline(v=1996:2026,col=4,lty=3)
+#text(1990:2017+0.5,3950,1990:2017,cex=0.8)
+```
+
+
+```{r}
+m=apply(matrix(serie[1:(21*12)],nr=12),2,mean)
+v=apply(matrix(serie[1:(21*12)],nr=12),2,var)
+plot(m,v,xlab="Yearly means",ylab="Yearly variances",main="APB")
+abline(lm(v~m),col=2,lty=3,lwd=2)
+```
+
+```{r}
+boxplot(serie~floor(time(serie)))
+```
+
+```{r}
+lnserie=log(serie)
+plot(lnserie)
+```
+
+```{r}
+boxplot(lnserie~floor(time(lnserie)))
+```
+
+```{r}
+plot(decompose(lnserie))
+```
+
+```{r}
+monthplot(lnserie)
+```
+
+```{r}
+ts.plot(matrix(lnserie,nrow=12),col=1:8)
+```
+
+```{r}
+d12lnserie=diff(lnserie,12)
+plot(d12lnserie)
+abline(h=0)
+```
+
+```{r}
+d1d12lnserie=diff(d12lnserie,1)
+plot(d1d12lnserie)
+abline(h=0)
+```
+
+```{r}
+d1d1d12lnserie=diff(d1d12lnserie,1)
+plot(d1d1d12lnserie)
+abline(h=0)
+```
+
+```{r}
+var(lnserie)
+var(d12lnserie)
+var(d1d12lnserie)
+var(d1d1d12lnserie)
+```
+
+
+```{r}
+par(mfrow=c(1,2))
+acf(d1d12lnserie,ylim=c(-1,1),col=c(2,rep(1,11)),lwd=2,lag.max=72)
+pacf(d1d12lnserie,ylim=c(-1,1),col=c(rep(1,11),2),lwd=2,lag.max=72)
+par(mfrow=c(1,1))
+```
+
+```{r}
+(mod1=arima(d1d12lnserie,order=c(0,0,1),seasonal=list(order=c(0,0,1),period=12)))
+```
+
+```{r}
+(mod1=arima(lnserie,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12)))
+```
+
+
+
+
+```{r,message=FALSE, warnings=FALSE}
+#################Validation#################################
+validation=function(model){
+  s=frequency(get(model$series))
+  resid=model$residuals
+  par(mfrow=c(2,2),mar=c(3,3,3,3))
+  #Residuals plot
+  plot(resid,main="Residuals")
+  abline(h=0)
+  abline(h=c(-3*sd(resid),3*sd(resid)),lty=3,col=4)
+  #Square Root of absolute values of residuals (Homocedasticity)
+  scatter.smooth(sqrt(abs(resid)),main="Square Root of Absolute residuals",
+                 lpars=list(col=2))
+  
+  #Normal plot of residuals
+  qqnorm(resid)
+  qqline(resid,col=2,lwd=2)
+  
+  ##Histogram of residuals with normal curve
+  hist(resid,breaks=20,freq=FALSE)
+  curve(dnorm(x,mean=mean(resid),sd=sd(resid)),col=2,add=T)
+  
+  
+  #ACF & PACF of residuals
+  par(mfrow=c(1,2))
+  acf(resid,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,s-1)),lwd=1)
+  pacf(resid,ylim=c(-1,1),lag.max=60,col=c(rep(1,s-1),2),lwd=1)
+  par(mfrow=c(1,1))
+  
+  #ACF & PACF of square residuals 
+  par(mfrow=c(1,2))
+  acf(resid^2,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,s-1)),lwd=1)
+  pacf(resid^2,ylim=c(-1,1),lag.max=60,col=c(rep(1,s-1),2),lwd=1)
+  par(mfrow=c(1,1))
+  
+  #Ljung-Box p-values
+  par(mar=c(2,2,1,1))
+  tsdiag(model,gof.lag=7*s)
+  cat("\n--------------------------------------------------------------------\n")
+  print(model)
+  
+  #Stationary and Invertible
+  cat("\nModul of AR Characteristic polynomial Roots: ", 
+      Mod(polyroot(c(1,-model$model$phi))),"\n")
+  cat("\nModul of MA Characteristic polynomial Roots: ",
+      Mod(polyroot(c(1,model$model$theta))),"\n")
+  
+  #Model expressed as an MA infinity (psi-weights)
+  psis=ARMAtoMA(ar=model$model$phi,ma=model$model$theta,lag.max=36)
+  names(psis)=paste("psi",1:36)
+  cat("\nPsi-weights (MA(inf))\n")
+  cat("\n--------------------\n")
+  print(psis[1:20])
+  
+  #Model expressed as an AR infinity (pi-weights)
+  pis=-ARMAtoMA(ar=-model$model$theta,ma=-model$model$phi,lag.max=36)
+  names(pis)=paste("pi",1:36)
+  cat("\nPi-weights (AR(inf))\n")
+  cat("\n--------------------\n")
+  print(pis[1:20])
+ 
+  cat("\nNormality Tests\n")
+  cat("\n--------------------\n")
+ 
+  ##Shapiro-Wilks Normality test
+  print(shapiro.test(resid(model)))
+
+  suppressMessages(require(nortest,quietly=TRUE,warn.conflicts=FALSE))
+  ##Anderson-Darling test
+  print(ad.test(resid(model)))
+  
+  suppressMessages(require(tseries,quietly=TRUE,warn.conflicts=FALSE))
+  ##Jarque-Bera test
+  print(jarque.bera.test(resid(model)))
+  
+  cat("\nHomoscedasticity Test\n")
+  cat("\n--------------------\n")
+  suppressMessages(require(lmtest,quietly=TRUE,warn.conflicts=FALSE))
+  ##Breusch-Pagan test
+  obs=get(model$series)
+  print(bptest(resid(model)~I(obs-resid(model))))
+  
+  cat("\nIndependence Tests\n")
+  cat("\n--------------------\n")
+  
+  ##Ljung-Box test
+  cat("\nLjung-Box test\n")
+  print(t(apply(matrix(c(1:4,(1:4)*s)),1,function(el) {
+    te=Box.test(resid(model),type="Ljung-Box",lag=el)
+    c(lag=(te$parameter),statistic=te$statistic[[1]],p.value=te$p.value)})))
+
+}
+################# Fi Validaci? #################################
+```
+
+
+
+```{r}
+
+validation(mod1)
+```
+
+
+
+```{r}
+ultim=c(2024,12)
+pdq=c(0,1,1)
+PDQ=c(0,1,1)
+
+serie1=window(serie,end=ultim+c(1,0))
+lnserie1=log(serie1)
+serie2=window(serie,end=ultim)
+lnserie2=log(serie2)
+
+(mod1A=arima(lnserie1,order=pdq,seasonal=list(order=PDQ,period=12)))
+(mod1B=arima(lnserie2,order=pdq,seasonal=list(order=PDQ,period=12)))
+```
+
+```{r}
+pred=predict(mod1B,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=ultim,freq=12)
+
+se<-ts(c(0,pred$se),start=ultim,freq=12)
+
+#Intervals
+tl<-ts(exp(pr-1.96*se),start=ultim,freq=12)
+tu<-ts(exp(pr+1.96*se),start=ultim,freq=12)
+pr<-ts(exp(pr),start=ultim,freq=12)
+
+
+ts.plot(serie,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=ultim[1]+c(-3,+2),type="o",main="Model ARIMA(0,1,1)(0,1,1)12")
+abline(v=(ultim[1]-3):(ultim[1]+2),lty=3,col=4)
+```
+
+
+```{r}
+
+(previs=window(cbind(tl,pr,tu,serie,error=round(serie-pr,3)),start=ultim))
+
+obs=window(serie,start=ultim)
+
+mod.RMSE1=sqrt(sum((obs-pr)^2)/12)
+mod.MAE1=sum(abs(obs-pr))/12
+mod.RMSPE1=sqrt(sum(((obs-pr)/obs)^2)/12)
+mod.MAPE1=sum(abs(obs-pr)/obs)/12
+
+data.frame("RMSE"=mod.RMSE1,"MAE"=mod.MAE1,"RMSPE"=mod.RMSPE1,"MAPE"=mod.MAPE1)
+
+mCI1=mean(tu-tl)
+
+cat("\nMean Length CI: ",mCI1)
+```
+
+
+```{r}
+pred=predict(mod1A,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=ultim+c(1,0),freq=12)
+se<-ts(c(0,pred$se),start=ultim+c(1,0),freq=12)
+
+#Intervals
+tl1<-ts(exp(pr-1.96*se),start=ultim+c(1,0),freq=12)
+tu1<-ts(exp(pr+1.96*se),start=ultim+c(1,0),freq=12)
+pr1<-ts(exp(pr),start=ultim+c(1,0),freq=12)
+
+ts.plot(serie,tl1,tu1,pr1,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(ultim[1]-2,ultim[1]+3),type="o",main="Model ARIMA(0,1,1)(0,1,1)12")
+abline(v=(ultim[1]-2):(ultim[1]+3),lty=3,col=4)
+```
+
+
+```{r}
+modA=mod1A
+(previs1=window(cbind(tl1,pr1,tu1),start=ultim+c(1,0)))
+```
+
+
+
+```{r}
+(mod2=arima(d1d12lnserie,order=c(2,0,0),seasonal=list(order=c(0,0,1),period=12)))
+```
+
+
+```{r}
+(mod2=arima(lnserie,order=c(2,1,0),seasonal=list(order=c(0,1,1),period=12)))
+```
+
+
+```{r}
+validation(mod2)
+```
+
+
+```{r}
+ultim=c(2024,12)
+pdq=c(2,1,0)
+PDQ=c(0,1,1)
+
+serie1=window(serie,end=ultim+c(1,0))
+lnserie1=log(serie1)
+serie2=window(serie,end=ultim)
+lnserie2=log(serie2)
+
+(mod2A=arima(lnserie1,order=pdq,seasonal=list(order=PDQ,period=12)))
+(mod2B=arima(lnserie2,order=pdq,seasonal=list(order=PDQ,period=12)))
+```
+
+```{r}
+pred=predict(mod2B,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=ultim,freq=12)
+
+se<-ts(c(0,pred$se),start=ultim,freq=12)
+
+#Intervals
+tl<-ts(exp(pr-1.96*se),start=ultim,freq=12)
+tu<-ts(exp(pr+1.96*se),start=ultim,freq=12)
+pr<-ts(exp(pr),start=ultim,freq=12)
+
+
+ts.plot(serie,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=ultim[1]+c(-3,+2),type="o",main="Model ARIMA(2,1,0)(0,1,1)12")
+abline(v=(ultim[1]-3):(ultim[1]+2),lty=3,col=4)
+```
+
+```{r}
+
+(previs=window(cbind(tl,pr,tu,serie,error=round(serie-pr,3)),start=ultim))
+
+obs=window(serie,start=ultim)
+
+mod.RMSE2=sqrt(sum((obs-pr)^2)/12)
+mod.MAE2=sum(abs(obs-pr))/12
+mod.RMSPE2=sqrt(sum(((obs-pr)/obs)^2)/12)
+mod.MAPE2=sum(abs(obs-pr)/obs)/12
+
+data.frame("RMSE"=mod.RMSE2,"MAE"=mod.MAE2,"RMSPE"=mod.RMSPE2,"MAPE"=mod.MAPE2)
+
+mCI2=mean(tu-tl)
+
+cat("\nMean Length CI: ",mCI2)
+```
+
+
+```{r}
+pred=predict(mod2A,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=ultim+c(1,0),freq=12)
+se<-ts(c(0,pred$se),start=ultim+c(1,0),freq=12)
+
+#Intervals
+tl2<-ts(exp(pr-1.96*se),start=ultim+c(1,0),freq=12)
+tu2<-ts(exp(pr+1.96*se),start=ultim+c(1,0),freq=12)
+pr2<-ts(exp(pr),start=ultim+c(1,0),freq=12)
+
+ts.plot(serie,tl2,tu2,pr2,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(ultim[1]-2,ultim[1]+3),type="o",main="Model ARIMA(2,1,0)(0,1,1)12")
+abline(v=(ultim[1]-2):(ultim[1]+3),lty=3,col=4)
+```
+
+
+
+```{r}
+modB=mod2A
+(previs2=window(cbind(tl2,pr2,tu2),start=ultim+c(1,0)))
+```
+```{r}
+library(forecast)
+auto.arima(lnserie)
+```
+
+
+```{r}
+(mod3<-arima(lnserie,order=c(0,1,1),seasonal=list(order=c(2,0,0),period=12)))
+```
+
+```{r}
+validation(mod2)
+```
+
+
+```{r}
+ultim=c(2024,12)
+pdq=c(0,1,1)
+PDQ=c(2,0,0)
+
+serie1=window(serie,end=ultim+c(1,0))
+lnserie1=log(serie1)
+serie2=window(serie,end=ultim)
+lnserie2=log(serie2)
+
+(mod3A=arima(lnserie1,order=pdq,seasonal=list(order=PDQ,period=12)))
+(mod3B=arima(lnserie2,order=pdq,seasonal=list(order=PDQ,period=12)))
+```
+
+```{r}
+pred=predict(mod3B,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=ultim,freq=12)
+
+se<-ts(c(0,pred$se),start=ultim,freq=12)
+
+#Intervals
+tl<-ts(exp(pr-1.96*se),start=ultim,freq=12)
+tu<-ts(exp(pr+1.96*se),start=ultim,freq=12)
+pr<-ts(exp(pr),start=ultim,freq=12)
+
+
+ts.plot(serie,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=ultim[1]+c(-3,+2),type="o",main="Model ARIMA(0,1,1)(2,0,0)12")
+abline(v=(ultim[1]-3):(ultim[1]+2),lty=3,col=4)
+```
+
+```{r}
+
+(previs=window(cbind(tl,pr,tu,serie,error=round(serie-pr,3)),start=ultim))
+
+obs=window(serie,start=ultim)
+
+mod.RMSE3=sqrt(sum((obs-pr)^2)/12)
+mod.MAE3=sum(abs(obs-pr))/12
+mod.RMSPE3=sqrt(sum(((obs-pr)/obs)^2)/12)
+mod.MAPE3=sum(abs(obs-pr)/obs)/12
+
+data.frame("RMSE"=mod.RMSE3,"MAE"=mod.MAE3,"RMSPE"=mod.RMSPE3,"MAPE"=mod.MAPE3)
+
+mCI3=mean(tu-tl)
+
+cat("\nMean Length CI: ",mCI3)
+```
+
+
+```{r}
+pred=predict(mod3A,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=ultim+c(1,0),freq=12)
+se<-ts(c(0,pred$se),start=ultim+c(1,0),freq=12)
+
+#Intervals
+tl2<-ts(exp(pr-1.96*se),start=ultim+c(1,0),freq=12)
+tu2<-ts(exp(pr+1.96*se),start=ultim+c(1,0),freq=12)
+pr2<-ts(exp(pr),start=ultim+c(1,0),freq=12)
+
+ts.plot(serie,tl2,tu2,pr2,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(ultim[1]-2,ultim[1]+3),type="o",main="Model ARIMA(0,1,1)(2,0,0)12")
+abline(v=(ultim[1]-2):(ultim[1]+3),lty=3,col=4)
+```
+
+
+
+```{r}
+modC=mod3A
+(previs3=window(cbind(tl2,pr2,tu2),start=ultim+c(1,0)))
+```
+```{r}
+par(mfrow=c(1,3),mar=c(3,3,1,1))
+ts.plot(serie,previs1,lty=c(1,2,1,2),col=c(1,4,2,4),xlim=c(2023,2027),type="o",main="Model ARIMA(0,1,1)(0,1,1)12")
+abline(v=2023:2027,lty=3,col=4,ylim=c(15,280))
+ts.plot(serie,previs2,lty=c(1,2,1,2),col=c(1,4,2,4),xlim=c(2023,2027),type="o",main="Model ARIMA(2,1,0)(0,1,1)12")
+abline(v=2023:2027,lty=3,col=4,ylim=c(15,280))
+ts.plot(serie,previs3,lty=c(1,2,1,2),col=c(1,4,2,4),xlim=c(2023,2027),type="o",main="Model ARIMA(0,1,1)(2,0,0)12")
+abline(v=2023:2027,lty=3,col=4,ylim=c(15,280))
+par(mfrow=c(1,1))
+```
+
+
+
+
+```{r}
+resul=data.frame(
+  par=c(length(coef(mod1)),length(coef(mod2)),length(coef(mod3))),
+  SigmaZ=sqrt(c(mod1$sigma2,mod2$sigma2,mod3$sigma2)),
+  AIC=c(AIC(mod1),AIC(mod2),AIC(mod3)),
+  BIC=c(BIC(mod1),BIC(mod2),BIC(mod3)),
+  RMSE=c(mod.RMSE1,mod.RMSE2,mod.RMSE3),
+  MAE=c(mod.MAE1,mod.MAE2,mod.MAE3),
+  RMSPE=c(mod.RMSPE1,mod.RMSPE2,mod.RMSPE3),
+  MAPE=c(mod.MAPE1,mod.MAPE2,mod.MAPE3),
+  meanLength=c(sum(previs1[,3]-previs1[,1]),sum(previs2[,3]-previs2[,1]),sum(previs3[,3]-previs3[,1]))/12)
+row.names(resul)=c("ARIMA(0,1,1)(0,1,1)12","ARIMA(2,1,0)(0,1,1)12","ARIMA(0,1,1)(2,0,0)12")
+
+
+resul
+```
+
+
+
+
