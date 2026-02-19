@@ -146,8 +146,35 @@ pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq),
      col=c(2, rep(1, 59)))
 par(mfrow=c(1,1))
 ```
+Do first differencing to determine seasonality and ARMA structure
+```{r}
+diff_series <- diff(working_series)
+par(mfrow=c(1,2))
+lag_limit <- max(60, 3*freq)
+seasonal_lags <- seq(freq, lag_limit, by=freq)
+
+acf_obj <- acf(diff_series, ylim=c(-1,1), lag.max=lag_limit,
+         lwd=2, col=1, main=paste("ACF:", working_series_name, "(1st Diff)"))
+acf_lags <- as.numeric(acf_obj$lag)[-1]
+acf_vals <- as.numeric(acf_obj$acf)[-1]
+acf_idx <- which(round(acf_lags * freq) %in% seasonal_lags)
+segments(acf_lags[acf_idx], 0, acf_lags[acf_idx], acf_vals[acf_idx], col=2, lwd=2)
+points(acf_lags[acf_idx], acf_vals[acf_idx], col=2, pch=16)
+
+pacf_obj <- pacf(diff_series, ylim=c(-1,1), lag.max=lag_limit,
+         lwd=2, col=1, main=paste("PACF:", working_series_name, "(1st Diff)"))
+pacf_lags <- as.numeric(pacf_obj$lag)
+pacf_vals <- as.numeric(pacf_obj$acf)
+pacf_idx <- which(round(pacf_lags * freq) %in% seasonal_lags)
+segments(pacf_lags[pacf_idx], 0, pacf_lags[pacf_idx], pacf_vals[pacf_idx], col=2, lwd=2)
+points(pacf_lags[pacf_idx], pacf_vals[pacf_idx], col=2, pch=16)
+```
+We should do seasonality 12 for both AR and MA, and then up to AR(5) and MA(3) for the non-seasonal part, based on the ACF and PACF patterns.
 
 
+```{r}
+working_series <- diff_series
+```
 # SARIMA Modeling
 
 ## SARIMA function
@@ -275,6 +302,7 @@ analyze_sarima <- function(series, order, seasonal) {
     Invertible      = ifelse(is_invertible, "Yes", "No"),
     
     RMSE            = sqrt(mean((test_orig - fc_orig)^2)),
+    RMSPE           = sqrt(mean(((test_orig - fc_orig) / test_orig)^2)) * 100,
     MAE             = mean(abs(test_orig - fc_orig)),
     MAPE_Pct        = mean(abs((test_orig - fc_orig) / test_orig)) * 100,
     Mean_CI_Width   = mean(upper_bound - lower_bound)
@@ -332,21 +360,29 @@ compare_sarima_models <- function(series, models_list) {
 ```
 ## Models
 ```{r}
-# Specify Models (for now I just made up some)
-my_models <- list(
-  list(order = c(1,1,1), 
-       seasonal = list(order = c(2,0,2), period = 12)),
-  
-  list(order = c(1,1,2), 
-       seasonal = list(order = c(2,0,2), period = 12)),
-  
-  list(order = c(0,1,9), 
-       seasonal = list(order = c(2,0,2), period = 12)),
-  
-  list(order = c(7,1,0), 
-       seasonal = list(order = c(2,0,2), period = 12))
+# All possible non-seasonal ARMA(p,q) with p <= 5 and q <= 3
+# Seasonal period fixed at 12
+model_grid <- expand.grid(p = 1:5, q = 1:3)
+
+my_models <- lapply(seq_len(nrow(model_grid)), function(i) {
+  list(
+    order = c(model_grid$p[i], 0, model_grid$q[i]),
+    seasonal = list(order = c(1,0,1), period = 12)
+  )
+})
+
+# Print all model names
+model_names <- paste0(
+  "ARIMA(", model_grid$p, ",0,", model_grid$q, ")",
+  "(1,0,1)[12]"
 )
+print(model_names)
 ```
+show a few of the models to confirm they are correct
+```{r}
+head(my_models, 1)
+```
+
 ## Run all models
 ```{r}
 # Run Analysis
@@ -354,4 +390,9 @@ comparison_table <- compare_sarima_models(working_series, my_models)
 print(comparison_table)
 ```
 
+# Choosing Model
+All modeels dont have normal residuals because of covid. Disregarding that, based on model performance we have models 13, 3, 6 but for parsimony were choosing the simplest which is ARIMA(1,0,2)(1,0,1)[12].
 
+```{r}
+analyze_sarima(working_series, order = c(1,0,2), seasonal = list(order = c(1,0,1), period = 12))
+```
