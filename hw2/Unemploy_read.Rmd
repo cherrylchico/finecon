@@ -5,22 +5,31 @@ output:
   pdf_document:
     latex_engine: xelatex
     number_sections: true
+    toc: true
+    toc_depth: 3
 ---
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  results = "hold",
+  fig.show = "hold"
+)
 
 #set working directory to the folder where this file is located
 setwd("/Users/cherrylchico/Desktop/BSE/T2/Financial Econometrics/finecon/hw2")
 ```
 # Load Packages and Data
-```{r}
+```{r, warning=FALSE, message=FALSE}
 library(forecast)
 library(tseries)
 library(lmtest)
 library(nortest)
 library(MASS)
 ```
-Read the data as a time series object. The data is the number of individuals registered as unemployed in SEPE oﬃces since January 2000 available at https://expinterweb.mites.gob.es/series/. Select window starting 2000.
+
+We read the unemployment data from the Spanish Employment Public Service (SEPE), representing the count of individuals registered as unemployed at SEPE offices. The dataset spans from January 2000 to present, sourced from https://expinterweb.mites.gob.es/series/. The data is converted into a time series object with a starting window from 2000.
 
 ```{r}
 series <- window(
@@ -37,168 +46,174 @@ cat("Start:", start(series)[1], "Period", start(series)[2], "\n")
 cat("End:", end(series)[1], "Period", end(series)[2], "\n")
 cat("Frequency:", frequency(series), "\n\n")
 
-# show values
-round(series, 3)
+# Display first five years of data
+head(round(series, 3),12*5)
 ```
-
 
 ```{r}
 # constants
 series_name <- "Unemployment Rate"
 start_year <- 2000
 start_period <- 1
-freq <- 12  
-period_length <- 12 
+freq <- 12
+period_length <- 12
 xlabel <- "month"
-ylabel <- "unemployment rate"
+ylabel <- "Unemployment Rate (%)"
 ```
-```
-some obvious yearly seasonality, but SARIMA will handle that
-```{r}
+## Plotting the series
+
+
+```{r, fig.width=7, fig.height=4}
 plot(series, main=series_name, xlab=xlabel, ylab=ylabel)
 abline(v=1996:2026,col=4,lty=3)
 ```
-To model, we first achieve variance constancy and let SARIMA handle the seasonality and mean stability. 
+The data exhibits clear yearly seasonal patterns with peaks at end of the year and troughs in the middle of the year, likely due to seasonal employment patterns. We also see changes in trend from 2000 to 2008, then a sharp increase during the 2008 financial crisis, followed by a gradual decline until 2020, and then a sharp increase again during the COVID-19 pandemic. 
 
-# Transformation to Variance Constancy
-use rolling window stdev better than boxplot, with heteroskedasticity
+To fit a SARIMA model, we will transform the series to achieve mean and variance stability. We begin with a preliminary visual evaluation of stationarity by analyzing rolling mean and variance. This approach provides a continuous view of potential changes, avoiding the artifacts introduced by binning.
+
+# Transformations
+## Functions
 ```{r}
-#function to plot rolling standard deviation
-plot_rolling_std <- function(series, window_size, name="Series") {
-  rolling_std <- sapply(1:(length(series) - window_size + 1), function(i) {
-    sd(series[i:(i + window_size - 1)])
+# function to get rolling ts
+get_rolling_ts <- function(series, window_size) {
+  rolling_mean <- sapply(1:(length(series) - window_size + 1), function(i) {
+    mean(series[i:(i + window_size - 1)])
   })
-  
-  plot(rolling_std, type = "l",
-    main = paste(name, "\nRolling Standard Deviation (",
-           window_size, "-month window)", sep = ""),
-    xlab = "Time", ylab = "Standard Deviation")
-  abline(h=mean(rolling_std), col=2, lwd=2)
+  rolling_var <- sapply(1:(length(series) - window_size + 1), function(i) {
+    var(series[i:(i + window_size - 1)])
+  })
+
+  data.frame(
+    rolling_mean = rolling_mean,
+    rolling_variance = rolling_var
+  )
 }
 
+produce_plots <- function(series, name="Series") {
+  rolling_stats <- get_rolling_ts(series, freq)
+  print(paste("Rolling statistics for:", name))
+  par(mfrow=c(2,2))
+  
+  # Plot 1: Rolling Mean over time
+  plot(rolling_stats$rolling_mean, type="l", 
+       main = paste("Rolling Mean (", freq, "-month window)", sep = ""),
+       xlab = "Time", ylab = "Rolling Mean")
+  
+  # Plot 2: Rolling Variance over time
+  plot(rolling_stats$rolling_variance, type="l", 
+       main = paste("Rolling Variance (", freq, "-month window)", sep = ""),
+       xlab = "Time", ylab = "Rolling Variance")
+  
+  # Plot 3 & 4: Mean vs Variance (spanning full width)
+  par(mfrow=c(2,1), oma=c(0, 0, 2, 0))
+  y_range <- range(rolling_stats$rolling_variance)
+  y_padding <- (y_range[2] - y_range[1]) * 0.05
+  plot(rolling_stats$rolling_mean, rolling_stats$rolling_variance,
+       main = "Rolling Mean vs Variance",
+       xlab = "Rolling Mean", ylab = "Rolling Variance",
+       ylim = c(y_range[1] - y_padding, y_range[2] + y_padding))
+  
+  # print correlation
+  cor_val <- cor(rolling_stats$rolling_mean, rolling_stats$rolling_variance)
+  legend("topright", legend = paste("Correlation:", round(cor_val, 3)), bty = "n")
+  
+  par(mfrow=c(1,1))
+}
 ```
+## Variance and Mean Stability Check  
+```{r, fig.width=7, fig.height=6}
+produce_plots (series, series_name)
+```
+We can see that the rolling mean is not stable, with clear changes in trend over time. The rolling variance also shows significant fluctuations, particularly during the 2008 financial crisis and the COVID-19 pandemic. The correlation between rolling mean and variance is low (0.08), suggesting that the variance does not strongly depend on the mean, but the presence of heteroskedasticity is still evident from the variance plot.
 
-## Rolling standard deviation
-```{r rolling_std}
-plot_rolling_std(series, 12, series_name)  
-```
-## LN Transformation
-seemed to handle mean stability and seasonality
-```{r log}
+We will first address the variance instability with transformations, and then we will address the mean instability with differencing prior to fitting the SARIMA model.
+
+## LN and Box-Cox Transformations 
+
+```{r transform}
 ln_transformed <- log(series / 100)
-plot(ln_transformed, type="o", 
-  main=paste(series_name, "(log transformed)"),
-  ylab=paste("Log of Unemployment Rate (%)", sep=""),
-  xlab="")
-abline(h=mean(ln_transformed), col=2, lwd=2)
-```
 
-still with obvious heteroskedasticity here
-```{r rolling std returns}
-plot_rolling_std(ln_transformed, 12, paste(series_name, "(log transformed)"))
-```
-##  Box Cox Transformation
-```{r boxcox}
-# Box-Cox transformation to find optimal lambda for variance stabilization
-boxcox_result <- boxcox(series ~ 1, lambda = seq(-2, 2, by = 0.1))
+# Box-Cox transformation 
+boxcox_result <- boxcox(series ~ 1, lambda = seq(-2, 2, by = 0.01), plot=FALSE)
 optimal_lambda <- boxcox_result$x[which.max(boxcox_result$y)]
 cat("Optimal lambda for Box-Cox transformation:", optimal_lambda, "\n")
 # Apply Box-Cox transformation with optimal lambda
 bc_transformed <- (series^optimal_lambda - 1) / optimal_lambda
 ```
-```{r}
-plot(bc_transformed, type="o", 
-  main=paste(series_name, "(Box-Cox transformed)"),
-  ylab=paste("Box-Cox transformed Unemployment Rate (%)", sep=""),
-  xlab="")
-abline(h=mean(bc_transformed), col=2, lwd=2)
-```
-plot
-```{r}
-plot_rolling_std(bc_transformed, 12, paste(series_name, "(Box-Cox transformed)"))
-```
+Because optimal lambda for the Box-Cox transformation is close to 0, the log transformation is likely sufficient for variance stabilization. Thus, we will proceed to investigate the plots only for the log transformation. 
 
-plot all three transformations together for comparison
-```{r}
-par(mfrow=c(3,1))
-plot_rolling_std(series, 12, paste(series_name, "(Original)"))
-plot_rolling_std(bc_transformed, 12, paste(series_name, "(Box-Cox transformed)"))
-plot_rolling_std(ln_transformed, 12, paste(series_name, "(log transformed)"))
+```{r, fig.width=7, fig.height=6}
+produce_plots (ln_transformed, paste(series_name, "(log transformed)"))
 ```
-# Prep for SARIMA
+Transforming the data with the natural logarithm reduced the overall level butdid not stabilize the variance. The 2008 financial crisis and the COVID-19 pandemic still show significant spikes in variance, which suggest that there could be structural breaks in the data.
+
+For this exercise, we keep as is as handling structural breaks is beyond the scope of this assignment.
+
+## ACF and PACF Analysis
+Using the log-transformed series, we will analyze the ACF and PACF plots to determine the appropriate order of differencing and the potential AR and MA terms for the SARIMA model.
 ```{r}
-par(mfrow=c(1,1))
-working_series <- ln_transformed
-working_series_name <- paste(series_name, "(log transformed)")
-ylabel <- paste("Log of", series_name, "(%)", sep="")
-plot(working_series, type="o", main=working_series_name, ylab=ylabel, xlab=xlabel)
-```
-ACF PACF to see potential sarima models
-
-definitely need differencing
-```{r}
-par(mfrow=c(1,2))
-acf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
-    lwd=2, main=paste("ACF:", working_series_name),
-)
-pacf(working_series, ylim=c(-1,1), lag.max=max(60, 3*freq), 
-     lwd=2, main=paste("PACF:", working_series_name),
-     col=c(2, rep(1, 59)))
-par(mfrow=c(1,1))
-```
-Do first differencing to determine seasonality and ARMA structure
-```{r}
-diff_series <- diff(working_series)
-par(mfrow=c(1,2))
-lag_limit <- max(60, 3*freq)
-seasonal_lags <- seq(freq, lag_limit, by=freq)
-
-acf_obj <- acf(diff_series, ylim=c(-1,1), lag.max=lag_limit,
-         lwd=2, col=1, main=paste("ACF:", working_series_name, "(1st Diff)"))
-acf_lags <- as.numeric(acf_obj$lag)[-1]
-acf_vals <- as.numeric(acf_obj$acf)[-1]
-acf_idx <- which(round(acf_lags * freq) %in% seasonal_lags)
-segments(acf_lags[acf_idx], 0, acf_lags[acf_idx], acf_vals[acf_idx], col=2, lwd=2)
-points(acf_lags[acf_idx], acf_vals[acf_idx], col=2, pch=16)
-
-pacf_obj <- pacf(diff_series, ylim=c(-1,1), lag.max=lag_limit,
-         lwd=2, col=1, main=paste("PACF:", working_series_name, "(1st Diff)"))
-pacf_lags <- as.numeric(pacf_obj$lag)
-pacf_vals <- as.numeric(pacf_obj$acf)
-pacf_idx <- which(round(pacf_lags * freq) %in% seasonal_lags)
-segments(pacf_lags[pacf_idx], 0, pacf_lags[pacf_idx], pacf_vals[pacf_idx], col=2, lwd=2)
-points(pacf_lags[pacf_idx], pacf_vals[pacf_idx], col=2, pch=16)
-```
-We should do seasonality 12 for both AR and MA, and then up to AR(5) and MA(3) for the non-seasonal part, based on the ACF and PACF patterns.
-
-
-```{r}
-working_series <- diff_series
-```
-# SARIMA Modeling
-
-## SARIMA function
-```{r}
-analyze_sarima <- function(series, order, seasonal) {
+acf_pacf_plots <- function(series, name="Series") {
+  s <- frequency(series)
+  lag_limit <- max(60, 3*s)
   
-  # --- Setup ---
+  acf_obj <- acf(series, plot=FALSE, lag.max=lag_limit)
+  pacf_obj <- pacf(series, plot=FALSE, lag.max=lag_limit)
+
+  par(mfrow=c(1,2), oma=c(0, 0, 2, 0))
+  plot(acf_obj, main = "ACF", ylim=c(-1,1), lwd=2, col=1)
+  
+  acf_lags <- as.numeric(acf_obj$lag)[-1]
+  acf_vals <- as.numeric(acf_obj$acf)[-1]
+  seasonal_lags <- seq(s, lag_limit, by=s)
+  
+  acf_idx <- which(round(acf_lags * s) %in% seasonal_lags)
+  segments(acf_lags[acf_idx], 0, acf_lags[acf_idx], acf_vals[acf_idx], col=2, lwd=2)
+  plot(pacf_obj, main = "PACF", ylim=c(-1,1), lwd=2, col=1)
+  
+  pacf_lags <- as.numeric(pacf_obj$lag)
+  pacf_vals <- as.numeric(pacf_obj$acf)
+  pacf_idx <- which(round(pacf_lags * s) %in% seasonal_lags)
+  segments(pacf_lags[pacf_idx], 0, pacf_lags[pacf_idx], pacf_vals[pacf_idx], col=2, lwd=2)
+  
+  mtext(name, outer=TRUE, cex=1.2, line=0.5)
+  par(mfrow = c(1, 1))
+}
+```
+```{r, fig.width=7, fig.height=4}
+acf_pacf_plots(ln_transformed, paste(series_name, "(log transformed)"))
+```
+The ACF plot shows slow decay with all lag significant which suggests non-stationarity and the need for differencing. We apply first differencing and then re-examine the ACF and PACF plots.
+
+```{r, fig.width=7, fig.height=4}
+d1ln_transformed <- diff(ln_transformed)
+acf_pacf_plots(d1ln_transformed, paste(series_name, "(log transformed, 1st diff)"))
+```
+The PACF plot has significant nearby lags at 3, 4, 5, and seasonal lag 12. The ACF plot has significant nearby lags at 1, 2, and seasonal lag 12. From here, we will consider models with AR terms up to 5, MA terms up to 3, and seasonal AR and MA terms at lag 12. 
+
+# SARIMA Models
+## Functions
+```{r}
+analyze_sarima <- function(series, order, seasonal, verbose = TRUE) {
+
   s <- frequency(series)
   n <- length(series)
   model_name <- paste0("ARIMA(", paste(order, collapse=","), ")(", 
                        paste(seasonal$order, collapse=","), ")", s)
   
-  cat("\n==================================================================\n")
-  cat("  ANALYSIS FOR MODEL:", model_name, "\n")
-  cat("==================================================================\n")
+  if (verbose) {
+    cat("\n==================================================================\n")
+    cat("  ANALYSIS FOR MODEL:", model_name, "\n")
+    cat("==================================================================\n")
+  }
   
-  # -----------------------------------------------------------------------
   # 1. Estimation & Significance Check
-  # -----------------------------------------------------------------------
   fit_full <- arima(series, order = order, seasonal = seasonal)
   
   diag_var <- diag(fit_full$var.coef)
   if (any(diag_var <= 0)) {
-    cat("\n⚠️  CRITICAL WARNING: The Hessian matrix is unstable (Negative Variances).\n")
+    if (verbose) {
+      cat("\n⚠️  CRITICAL WARNING: The Hessian matrix is unstable (Negative Variances).\n")
+    }
     se_vec <- ifelse(diag_var > 0, sqrt(diag_var), NA)
   } else {
     se_vec <- sqrt(diag_var)
@@ -214,22 +229,23 @@ analyze_sarima <- function(series, order, seasonal) {
     p_value = p_vec
   )
   
-  coeftest$Significant <- ifelse(!is.na(coeftest$p_value) & 
-                                   (coeftest$p_value < 0.05 | abs(coeftest$t_stat) > 2), 
-                                 "Yes", "No")
+  coeftest$Significant <- ifelse(
+    !is.na(coeftest$p_value) &
+      (coeftest$p_value < 0.05 | abs(coeftest$t_stat) > 2),
+    "Yes", "No"
+  )
   
-  cat("\n[1] COEFFICIENT SIGNIFICANCE (Alpha = 0.05 or |t| > 2):\n")
-  print(round(coeftest[,1:4], 4))
-  cat("\nSignificance Flags:\n")
-  print(coeftest[,5, drop=FALSE])
+  if (verbose) {
+    cat("\n[1] COEFFICIENT SIGNIFICANCE (Alpha = 0.05 or |t| > 2):\n")
+    print(round(coeftest[,1:4], 4))
+    cat("\nSignificance Flags:\n")
+    print(coeftest[,5, drop=FALSE])
+  }
   
-  # -----------------------------------------------------------------------
   # 2. Residual Analysis (Diagnostics)
-  # -----------------------------------------------------------------------
   resid <- residuals(fit_full)
   
   # A. Causality / Invertibility Roots (Min Modulus)
-  # AR Roots
   ar_poly <- fit_full$model$phi
   if (length(ar_poly) > 0 && any(ar_poly != 0)) {
     ar_roots_mod <- Mod(polyroot(c(1, -ar_poly)))
@@ -237,8 +253,6 @@ analyze_sarima <- function(series, order, seasonal) {
   } else {
     min_ar_root  <- NA
   }
-  
-  # MA Roots
   ma_poly <- fit_full$model$theta
   if (length(ma_poly) > 0 && any(ma_poly != 0)) {
     ma_roots_mod <- Mod(polyroot(c(1, ma_poly)))
@@ -250,25 +264,32 @@ analyze_sarima <- function(series, order, seasonal) {
   is_causal     <- ifelse(!is.na(min_ar_root), min_ar_root > 1, TRUE)
   is_invertible <- ifelse(!is.na(min_ma_root), min_ma_root > 1, TRUE)
   
-  cat("\n[2] DIAGNOSTICS:\n")
-  cat("Min AR Root Modulus: ", min_ar_root, "\n")
-  cat("Min MA Root Modulus: ", min_ma_root, "\n")
+  if (verbose) {
+    cat("\n[2] DIAGNOSTICS:\n")
+    cat("Min AR Root Modulus: ", min_ar_root, "\n")
+    cat("Min MA Root Modulus: ", min_ma_root, "\n")
+  }
   
   # B. Plots
-  par(mfrow=c(2,2), mar=c(4,4,3,2))
-  plot(resid, main="Residuals", ylab="Error")
-  abline(h=0, col="gray"); abline(h=c(-3*sd(resid), 3*sd(resid)), lty=2, col="red")
-  scatter.smooth(sqrt(abs(resid)), main="Variance Check", ylab="sqrt(|Resid|)", lpars=list(col="red"))
-  qqnorm(resid); qqline(resid, col="red")
-  hist(resid, breaks=20, freq=FALSE, main="Histogram"); curve(dnorm(x, mean=mean(resid), sd=sd(resid)), col="red", add=TRUE)
+  if (verbose) {
+    par(mfrow = c(2, 2), mar = c(4, 4, 3, 2))
+    plot(resid, main = "Residuals", ylab = "Error")
+    abline(h = 0, col = "gray")
+    abline(h = c(-3 * sd(resid), 3 * sd(resid)), lty = 2, col = "red")
+    scatter.smooth(sqrt(abs(resid)), main = "Variance Check",
+                   ylab = "sqrt(|Resid|)", lpars = list(col = "red"))
+    qqnorm(resid)
+    qqline(resid, col = "red")
+    hist(resid, breaks = 20, freq = FALSE, main = "Histogram")
+    curve(dnorm(x, mean = mean(resid), sd = sd(resid)),
+          col = "red", add = TRUE)
+  }
   
   # C. Tests
   sw_test <- shapiro.test(resid)
   lb_test <- Box.test(resid, lag = 20, type = "Ljung-Box")
   
-  # -----------------------------------------------------------------------
   # 3. Forecasting & Cross-Validation
-  # -----------------------------------------------------------------------
   train_end <- c(floor(time(series)[n-12]), cycle(series)[n-12])
   train_set <- window(series, end = train_end)
   test_set  <- window(series, start = time(series)[n-11]) 
@@ -279,120 +300,160 @@ analyze_sarima <- function(series, order, seasonal) {
   fc_orig <- exp(fc$pred); test_orig <- exp(test_set)
   lower_bound <- exp(fc$pred - 1.96 * fc$se); upper_bound <- exp(fc$pred + 1.96 * fc$se)
   
-  # -----------------------------------------------------------------------
   # 4. Summary Table Generation
-  # -----------------------------------------------------------------------
   summary_row <- data.frame(
     Model_Name      = model_name,
     AIC             = fit_full$aic,
     BIC             = BIC(fit_full),
     Sigma2          = fit_full$sigma2,
-    
     Resid_Norm_PVal = sw_test$p.value,
     Normal       = ifelse(sw_test$p.value > 0.05, "Yes", "No"),
-    
     Resid_Ind_PVal  = lb_test$p.value,
     Independent  = ifelse(lb_test$p.value > 0.05, "Yes", "No"),
-    
-    # Positioned as requested: Root value to the left of the Boolean status
     Min_AR_Root     = min_ar_root,
     Causal          = ifelse(is_causal, "Yes", "No"),
-    
     Min_MA_Root     = min_ma_root,
     Invertible      = ifelse(is_invertible, "Yes", "No"),
-    
     RMSE            = sqrt(mean((test_orig - fc_orig)^2)),
     RMSPE           = sqrt(mean(((test_orig - fc_orig) / test_orig)^2)) * 100,
     MAE             = mean(abs(test_orig - fc_orig)),
     MAPE_Pct        = mean(abs((test_orig - fc_orig) / test_orig)) * 100,
     Mean_CI_Width   = mean(upper_bound - lower_bound)
   )
-  
-  cat("\n[3] PERFORMANCE SUMMARY:\n")
-  print(t(summary_row))
-  
   return(summary_row)
 }
 ```
-## Comparison Function
+
 ```{r}
-# -- COMPARATIVE ANALYSIS FUNCTION --
-
-
-compare_sarima_models <- function(series, models_list) {
+compare_sarima_models <- function(series, models_list, verbose = TRUE) {
+  if (verbose) {
+    cat("\n==================================================================\n")
+    cat("  STARTING AUTOMATED MODEL COMPARISON\n")
+    cat("==================================================================\n")
+  }
   
-  cat("\n--- Starting Automated Model Comparison ---\n")
-  
-  # This will store the summary row for each successful model
   comparison_results <- list()
-  
-  # Loop through each model specification in the list
   for (i in seq_along(models_list)) {
     spec <- models_list[[i]]
-    
-    cat(paste0("\nProcessing Model ", i, " of ", length(models_list), "...\n"))
-    
-    # Use tryCatch to prevent the loop from stopping if a model fails to converge
+    if (verbose) {
+      cat(paste0("\n==================================================================\n"))
+      cat(paste0("  MODEL ", i, ": ARIMA(", paste(spec$order, collapse=","), ")(", 
+                 paste(spec$seasonal$order, collapse=","), ")", frequency(series), "\n"))
+      cat(paste0("==================================================================\n"))
+    }
     result <- tryCatch({
       analyze_sarima(series = series, 
                      order = spec$order, 
-                     seasonal = spec$seasonal)
+                     seasonal = spec$seasonal,
+                     verbose = verbose)
     }, error = function(e) {
       cat(paste0("⚠️ Error in Model ", i, ": ", e$message, "\n"))
       return(NULL) # Return NULL so we can skip it
     })
-    
-    # If the model was successful, add it to our list
     if (!is.null(result)) {
       comparison_results[[length(comparison_results) + 1]] <- result
     }
   }
-  
-  # Combine all the rows into one master table
+
   final_table <- do.call(rbind, comparison_results)
-  
-  # Sort by BIC by default (it penalizes complexity more than AIC)
-  final_table <- final_table[order(final_table$BIC), ]
-  
+
   cat("\n--- Comparison Complete ---\n")
   return(final_table)
 }
 ```
+
 ## Models
+We list all possibl models with non-seasonal AR terms up to 5, non-seasonal MA terms up to 3, and seasonal AR and MA terms at lag 12. This results in a total of 24 models to compare.
 ```{r}
 # All possible non-seasonal ARMA(p,q) with p <= 5 and q <= 3
 # Seasonal period fixed at 12
-model_grid <- expand.grid(p = 1:5, q = 1:3)
+model_grid <- expand.grid(p = 0:5, q = 0:3)
 
-my_models <- lapply(seq_len(nrow(model_grid)), function(i) {
-  list(
-    order = c(model_grid$p[i], 0, model_grid$q[i]),
-    seasonal = list(order = c(1,0,1), period = 12)
-  )
-})
-
-# Print all model names
+# Create all model names first
 model_names <- paste0(
   "ARIMA(", model_grid$p, ",0,", model_grid$q, ")",
   "(1,0,1)[12]"
 )
+
+# Create my_models following the same order with names
+my_models <- setNames(
+  lapply(seq_len(nrow(model_grid)), function(i) {
+    list(
+      order = c(model_grid$p[i], 0, model_grid$q[i]),
+      seasonal = list(order = c(1,0,1), period = 12)
+    )
+  }),
+  model_names
+)
+
 print(model_names)
 ```
-show a few of the models to confirm they are correct
-```{r}
-head(my_models, 1)
-```
-
-## Run all models
+## Run Analysis
 ```{r}
 # Run Analysis
-comparison_table <- compare_sarima_models(working_series, my_models)
+comparison_table <- compare_sarima_models(
+  d1ln_transformed, 
+  my_models, 
+  verbose = FALSE
+)
 print(comparison_table)
 ```
+## Choosing Model
 
-# Choosing Model
-All modeels dont have normal residuals because of covid. Disregarding that, based on model performance we have models 13, 3, 6 but for parsimony were choosing the simplest which is ARIMA(1,0,2)(1,0,1)[12].
+From the comparison table we can see that:
+
+- All models are causal and invertible
+- None of the models have normal residuals, likely due to the structural breaks in the data caused by the 2008 financial crisis and the COVID-19 pandemic.
+- Most models have independent residuals, with a few exceptions.
+- We can see that the performance metrics produce generally similar ranking across models. 
+
+We select the top two models based on BIC, which provides a stronger penalty for model complexity than AIC, and on RMSPE, which is preferred over MAPE_pct due to its standardized scale.
 
 ```{r}
-analyze_sarima(working_series, order = c(1,0,2), seasonal = list(order = c(1,0,1), period = 12))
+# select top 2 models based on BIC and RMSPE
+top_bic <- comparison_table[order(comparison_table$BIC),][1:2,]
+top_rmspe <- comparison_table[order(comparison_table$RMSPE, decreasing = TRUE),][1:2,]
+cat("\nTop 2 Models by BIC:\n")
+print(top_bic[, c("Model_Name", "BIC", "RMSPE")])
+cat("\nTop 2 Models by RMSPE:\n")
+print(top_rmspe[, c("Model_Name", "BIC", "RMSPE")])
 ```
+# Model Shortlist
+Now we analyze the shortlisted models in more detail. 
+## Function
+```{r}
+analyze_sarima_wrapper <- function(model) {
+  chosen_model_index <- which(comparison_table$Model_Name == model)
+  # geet specs from my_models based on index
+  chosen_model_spec <- my_models[[chosen_model_index]]
+  stats <- analyze_sarima(
+    d1ln_transformed, 
+    order = chosen_model_spec$order, 
+    seasonal = chosen_model_spec$seasonal,
+    verbose = TRUE
+)
+  return(stats)
+}
+```
+```{r, fig.width=7, fig.height=6}
+stats <- analyze_sarima_wrapper(top_bic$Model_Name[1])
+print(t(stats))
+```
+```{r, fig.width=7, fig.height=6}
+stats <- analyze_sarima_wrapper(top_bic$Model_Name[2])
+print(t(stats))
+```
+```{r, fig.width=7, fig.height=6}
+stats <- analyze_sarima_wrapper(top_rmspe$Model_Name[1])
+print(t(stats))
+```
+```{r, fig.width=7, fig.height=6}
+stats <- analyze_sarima_wrapper(top_rmspe$Model_Name[2])
+print(t(stats))
+```
+
+## Final Model: ARIMA(1,0,0)(1,0,1)[12]
+
+Across all models, the residuals fail the normality test, which is also evident in the Q–Q plots. However, the residual plots and histograms suggest that this deviation is largely driven by extreme observations during the Covid period. The 2008 financial crisis shows elevated residuals as well, but not to the same magnitude. We also observe one additional extreme residual between 2000 and 2005 that cannot be linked to any identifiable event.
+Regarding variance, although it decreases slightly over time, the slope is minimal, indicating that the variance is relatively stable overall. The variance‑diagnostic plot does show signs of heteroskedasticity, likely reflecting structural breaks in the data.
+In terms of coefficient significance, the ARIMA(1,0,0)(1,0,1)[12] and ARIMA(0,0,3)(1,0,1)[12] models have all coefficients statistically significant, whereas the remaining models include non‑significant terms. Selecting the most parsimonious model with fully significant coefficients, we choose ARIMA(1,0,0)(1,0,1)[12] as the final specification.
