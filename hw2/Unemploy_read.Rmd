@@ -182,13 +182,26 @@ acf_pacf_plots <- function(series, name="Series") {
 ```{r, fig.width=7, fig.height=4}
 acf_pacf_plots(ln_transformed, paste(series_name, "(log transformed)"))
 ```
-The ACF plot shows slow decay with all lag significant which suggests non-stationarity and the need for differencing. We apply first differencing and then re-examine the ACF and PACF plots.
+The ACF plot shows slow decay with all lag significant which suggests non-stationarity and the need for differencing. We apply seasonal and first differencing and then re-examine the ACF and PACF plots.
 
 ```{r, fig.width=7, fig.height=4}
-d1ln_transformed <- diff(ln_transformed)
-acf_pacf_plots(d1ln_transformed, paste(series_name, "(log transformed, 1st diff)"))
+d12ln_transformed <- diff(ln_transformed, lag = 12)
+d1d12ln_transformed <- diff(d12ln_transformed)
+d1d1d12ln_transformed <- diff(d1d12ln_transformed)
+d1d1d1d12ln_transformed <- diff(d1d1d12ln_transformed)
+
+var(d1d12ln_transformed); var(d1d1d12ln_transformed); var(d1d1d1d12ln_transformed)
 ```
+Given the result of differenceing, we apply differencing twice since variance increases on the third difference. 
+
+```{r, fig.width=7, fig.height=4}
+acf_pacf_plots(d1d1d12ln_transformed, paste(series_name, "(log transformed, seasonal diff, 2nd diff)"))
+```
+[OLD]
 The PACF plot has significant nearby lags at 3, 4, 5, and seasonal lag 12. The ACF plot has significant nearby lags at 1, 2, and seasonal lag 12. From here, we will consider models with AR terms up to 5, MA terms up to 3, and seasonal AR and MA terms at lag 12. 
+
+[NEW - with seasonal]
+The PACF plot has significant nearby lags until the 4th, and until the 6th seasonal lag. The ACF plot has significant nearby lags at 1 and seasonal lag 1 as well. From here, we will consider models with AR terms up to 1, MA terms up to 6, and seasonal AR and MA terms at lag 1. 
 
 # SARIMA Models
 ## Functions
@@ -363,24 +376,25 @@ compare_sarima_models <- function(series, models_list, verbose = TRUE) {
 ```
 
 ## Models
-We list all possibl models with non-seasonal AR terms up to 5, non-seasonal MA terms up to 3, and seasonal AR and MA terms at lag 12. This results in a total of 24 models to compare.
+We list all possible models with non-seasonal AR terms up to 1, non-seasonal MA terms up to 4, and seasonal AR and MA terms at lag 1 and lag 6, respectively. 
 ```{r}
-# All possible non-seasonal ARMA(p,q) with p <= 5 and q <= 3
+# All possible non-seasonal ARMA(p,q) with p <= 1 and q <= 4
 # Seasonal period fixed at 12
-model_grid <- expand.grid(p = 0:5, q = 0:3)
+model_grid <- expand.grid(p = 0:2, q = 0:4)
+model_grid_seasonal <- expand.grid(p = 0:3, q = 0:6)
 
 # Create all model names first
 model_names <- paste0(
-  "ARIMA(", model_grid$p, ",0,", model_grid$q, ")",
-  "(1,0,1)[12]"
+  "ARIMA(", model_grid$p, ",2,", model_grid$q, ")",
+  "(", model_grid_seasonal$p, ",0,", model_grid$q, ")[12]"
 )
 
 # Create my_models following the same order with names
 my_models <- setNames(
-  lapply(seq_len(nrow(model_grid)), function(i) {
+  lapply(seq_len(nrow(model_grid) + nrow(model_grid_seasonal)), function(i) {
     list(
-      order = c(model_grid$p[i], 0, model_grid$q[i]),
-      seasonal = list(order = c(1,0,1), period = 12)
+      order = c(model_grid$p[i], 2, model_grid$q[i]),
+      seasonal = list(order = c(model_grid$p[i], 0, model_grid$q[i]), period = 12)
     )
   }),
   model_names
@@ -392,7 +406,7 @@ print(model_names)
 ```{r}
 # Run Analysis
 comparison_table <- compare_sarima_models(
-  d1ln_transformed, 
+  ln_transformed, 
   my_models, 
   verbose = FALSE
 )
@@ -420,6 +434,7 @@ print(top_rmspe[, c("Model_Name", "BIC", "RMSPE")])
 ```
 # Model Shortlist
 Now we analyze the shortlisted models in more detail. 
+
 ## Function
 ```{r}
 analyze_sarima_wrapper <- function(model) {
@@ -427,7 +442,7 @@ analyze_sarima_wrapper <- function(model) {
   # geet specs from my_models based on index
   chosen_model_spec <- my_models[[chosen_model_index]]
   stats <- analyze_sarima(
-    d1ln_transformed, 
+    ln_transformed, 
     order = chosen_model_spec$order, 
     seasonal = chosen_model_spec$seasonal,
     verbose = TRUE
@@ -452,8 +467,9 @@ stats <- analyze_sarima_wrapper(top_rmspe$Model_Name[2])
 print(t(stats))
 ```
 
-## Final Model: ARIMA(1,0,0)(1,0,1)[12]
+## Final Model: ARIMA(1,2,1)(1,0,1)[12]
 
+[NEED TO EDIT]
 Across all models, the residuals fail the normality test, which is also evident in the Q–Q plots. However, the residual plots and histograms suggest that this deviation is largely driven by extreme observations during the Covid period. The 2008 financial crisis shows elevated residuals as well, but not to the same magnitude. We also observe one additional extreme residual between 2000 and 2005 that cannot be linked to any identifiable event.
 Regarding variance, although it decreases slightly over time, the slope is minimal, indicating that the variance is relatively stable overall. The variance‑diagnostic plot does show signs of heteroskedasticity, likely reflecting structural breaks in the data.
 In terms of coefficient significance, the ARIMA(1,0,0)(1,0,1)[12] and ARIMA(0,0,3)(1,0,1)[12] models have all coefficients statistically significant, whereas the remaining models include non‑significant terms. Selecting the most parsimonious model with fully significant coefficients, we choose ARIMA(1,0,0)(1,0,1)[12] as the final specification.
