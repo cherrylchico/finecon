@@ -385,6 +385,7 @@ We now list all possible models with:
 - Non-seasonal MA (q): 0 to 1
 - Seasonal AR (P): 0 to 1 (because the seasonal lag does not show a clear cutoff, we keep it simple with P=0 or 1)
 - Seasonal MA (Q): 0 to 1
+  
 and keeping the differencing order fixed at (d=2, D=1) based on our previous analysis.
 
 ```{r}
