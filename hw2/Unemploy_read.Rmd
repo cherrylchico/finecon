@@ -67,9 +67,9 @@ ylabel <- "Unemployment Rate (%)"
 plot(series, main=series_name, xlab=xlabel, ylab=ylabel)
 abline(v=1996:2026,col=4,lty=3)
 ```
-The data exhibits clear yearly seasonal patterns with peaks at end of the year and troughs in the middle of the year, likely due to seasonal employment patterns. We also see changes in trend from 2000 to 2008, then a sharp increase during the 2008 financial crisis, followed by a gradual decline until 2020, and then a sharp increase again during the COVID-19 pandemic. 
+The data exhibits clear yearly seasonal patterns with peaks at end of the year and troughs in the middle of the year, likely due to seasonal employment patterns. We also see a sharp increase during the 2008 financial crisis, followed by a gradual decline until 2020, and then another sharp increase during the COVID-19 pandemic. 
 
-To fit a SARIMA model, we will transform the series to achieve mean and variance stability. We begin with a preliminary visual evaluation of stationarity by analyzing rolling mean and variance. This approach provides a continuous view of potential changes, avoiding the artifacts introduced by binning.
+To fit a SARIMA model, we transform the series to achieve mean and variance stability. We begin with a preliminary visual evaluation of stationarity by analyzing rolling mean and variance. This approach provides a continuous view of potential changes, avoiding the artifacts introduced by binning.
 
 # Transformations
 ## Functions
@@ -126,7 +126,7 @@ produce_plots (series, series_name)
 ```
 We can see that the rolling mean is not stable, with clear changes in trend over time. The rolling variance also shows significant fluctuations, particularly during the 2008 financial crisis and the COVID-19 pandemic. The correlation between rolling mean and variance is low (0.08), suggesting that the variance does not strongly depend on the mean, but the presence of heteroskedasticity is still evident from the variance plot.
 
-We will first address the variance instability with transformations, and then we will address the mean instability with differencing prior to fitting the SARIMA model.
+We first address the variance instability with transformations, and then we handle the mean instability with differencing prior to fitting the SARIMA model.
 
 ## LN and Box-Cox Transformations 
 
@@ -140,17 +140,17 @@ cat("Optimal lambda for Box-Cox transformation:", optimal_lambda, "\n")
 # Apply Box-Cox transformation with optimal lambda
 bc_transformed <- (series^optimal_lambda - 1) / optimal_lambda
 ```
-Because optimal lambda for the Box-Cox transformation is close to 0, the log transformation is likely sufficient for variance stabilization. Thus, we will proceed to investigate the plots only for the log transformation. 
+Because optimal lambda for the Box-Cox transformation is close to 0, the log transformation is likely sufficient for variance stabilization. Thus, we proceed to investigate the plots only for the log transformation. 
 
 ```{r, fig.width=7, fig.height=6}
 produce_plots (ln_transformed, paste(series_name, "(log transformed)"))
 ```
-Transforming the data with the natural logarithm reduced the overall level butdid not stabilize the variance. The 2008 financial crisis and the COVID-19 pandemic still show significant spikes in variance, which suggest that there could be structural breaks in the data.
+Transforming the data with the natural logarithm reduced the overall level but did not stabilize the variance. The 2008 financial crisis and the COVID-19 pandemic still show significant spikes in variance, which suggest that there could be structural breaks in the data.
 
 For this exercise, we keep as is as handling structural breaks is beyond the scope of this assignment.
 
 ## ACF and PACF Analysis
-Using the log-transformed series, we will analyze the ACF and PACF plots to determine the appropriate order of differencing and the potential AR and MA terms for the SARIMA model.
+Using the log-transformed series, we analyze the ACF and PACF plots to determine the appropriate order of differencing and the potential AR and MA terms for the SARIMA model.
 ```{r}
 acf_pacf_plots <- function(series, name="Series") {
   s <- frequency(series)
@@ -182,7 +182,7 @@ acf_pacf_plots <- function(series, name="Series") {
 ```{r, fig.width=7, fig.height=4}
 acf_pacf_plots(ln_transformed, paste(series_name, "(log transformed)"))
 ```
-The ACF plot shows slow decay with all lag significant which suggests non-stationarity and the need for differencing. We apply seasonal and first differencing and then re-examine the ACF and PACF plots.
+The ACF plot shows slow decay with all lags significant, which suggests non-stationarity and the need for differencing. We apply seasonal and first differencing and re-examine the ACF and PACF plots.
 
 ```{r, fig.width=7, fig.height=4}
 d12ln_transformed <- diff(ln_transformed, lag = 12)
@@ -192,16 +192,13 @@ d1d1d1d12ln_transformed <- diff(d1d1d12ln_transformed)
 
 var(d1d12ln_transformed); var(d1d1d12ln_transformed); var(d1d1d1d12ln_transformed)
 ```
-Given the result of differenceing, we apply differencing twice since variance increases on the third difference. 
+Given these results, we need to apply differencing twice, as variance increases on the third difference. 
 
 ```{r, fig.width=7, fig.height=4}
 acf_pacf_plots(d1d1d12ln_transformed, paste(series_name, "(log transformed, seasonal diff, 2nd diff)"))
 ```
-[OLD]
-The PACF plot has significant nearby lags at 3, 4, 5, and seasonal lag 12. The ACF plot has significant nearby lags at 1, 2, and seasonal lag 12. From here, we will consider models with AR terms up to 5, MA terms up to 3, and seasonal AR and MA terms at lag 12. 
 
-[NEW - with seasonal]
-The PACF plot has significant nearby lags until the 4th, and until the 6th seasonal lag. The ACF plot has significant nearby lags at 1 and seasonal lag 1 as well. From here, we will consider models with AR terms up to 1, MA terms up to 6, and seasonal AR and MA terms at lag 1. 
+The PACF plot has significant nearby lags until the 4th, and until the 5th seasonal lag. The ACF plot has significant nearby lags at 1 and seasonal lag 1 as well. From here, we will consider models with AR terms up to 4, MA terms up to 1, and seasonal AR and MA terms at lag 5 and lag 1, respectively.
 
 # SARIMA Models
 ## Functions
@@ -376,25 +373,25 @@ compare_sarima_models <- function(series, models_list, verbose = TRUE) {
 ```
 
 ## Models
-We list all possible models with non-seasonal AR terms up to 1, non-seasonal MA terms up to 4, and seasonal AR and MA terms at lag 1 and lag 6, respectively. 
+We now list all possible models with non-seasonal AR terms up to 4, non-seasonal MA terms up to 1, and seasonal AR and MA terms at lag 5 and lag 1, respectively. 
+
 ```{r}
-# All possible non-seasonal ARMA(p,q) with p <= 1 and q <= 4
-# Seasonal period fixed at 12
-model_grid <- expand.grid(p = 0:2, q = 0:4)
-model_grid_seasonal <- expand.grid(p = 0:3, q = 0:6)
+# All possible non-seasonal ARMA(p,q) with p <= 4 and q <= 1
+# Seasonal period fixed at 12, with P <= 5 and Q <= 1
+full_grid <- expand.grid(p = 0:4, q = 0:1, P = 0:5, Q = 0:1)
 
 # Create all model names first
 model_names <- paste0(
-  "ARIMA(", model_grid$p, ",2,", model_grid$q, ")",
-  "(", model_grid_seasonal$p, ",0,", model_grid$q, ")[12]"
+  "ARIMA(", full_grid$p, ",2,", full_grid$q, ")",
+  "(", full_grid$P, ",1,", full_grid$Q, ")[12]"
 )
 
 # Create my_models following the same order with names
 my_models <- setNames(
-  lapply(seq_len(nrow(model_grid) + nrow(model_grid_seasonal)), function(i) {
+  lapply(seq_len(nrow(full_grid)), function(i) {
     list(
-      order = c(model_grid$p[i], 2, model_grid$q[i]),
-      seasonal = list(order = c(model_grid$p[i], 0, model_grid$q[i]), period = 12)
+      order = c(full_grid$p[i], 2, full_grid$q[i]),
+      seasonal = list(order = c(full_grid$P[i], 1, full_grid$Q[i]), period = 12)
     )
   }),
   model_names
@@ -402,6 +399,7 @@ my_models <- setNames(
 
 print(model_names)
 ```
+
 ## Run Analysis
 ```{r}
 # Run Analysis
@@ -416,7 +414,7 @@ print(comparison_table)
 
 From the comparison table we can see that:
 
-- All models are causal and invertible
+- All models are causal and invertible.
 - None of the models have normal residuals, likely due to the structural breaks in the data caused by the 2008 financial crisis and the COVID-19 pandemic.
 - Most models have independent residuals, with a few exceptions.
 - We can see that the performance metrics produce generally similar ranking across models. 
@@ -467,7 +465,7 @@ stats <- analyze_sarima_wrapper(top_rmspe$Model_Name[2])
 print(t(stats))
 ```
 
-## Final Model: ARIMA(1,2,1)(1,0,1)[12]
+## Final Model: ARIMA(1,2,1)(1,0,1)[12] [NEED TO EDIT]
 
 [NEED TO EDIT]
 Across all models, the residuals fail the normality test, which is also evident in the Q–Q plots. However, the residual plots and histograms suggest that this deviation is largely driven by extreme observations during the Covid period. The 2008 financial crisis shows elevated residuals as well, but not to the same magnitude. We also observe one additional extreme residual between 2000 and 2005 that cannot be linked to any identifiable event.
