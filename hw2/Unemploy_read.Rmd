@@ -198,7 +198,12 @@ Given these results, we need to apply differencing twice, as variance increases 
 acf_pacf_plots(d1d1d12ln_transformed, paste(series_name, "(log transformed, seasonal diff, 2nd diff)"))
 ```
 
-The PACF plot has significant nearby lags until the 4th, and until the 5th seasonal lag. The ACF plot has significant nearby lags at 1 and seasonal lag 1 as well. From here, we will consider models with AR terms up to 4, MA terms up to 1, and seasonal AR and MA terms at lag 5 and lag 1, respectively.
+The ACF plot shows significant lags at 1 and  12 (seasonal lag 1). The PACF plot exhibits significant lags up to lag 4 with decaying seasonal lags. Based on this pattern, we specify models with:
+- Non-seasonal AR (p): 0 to 4
+- Non-seasonal MA (q): 0 to 1
+- Seasonal AR (P): 0 to 1 (because the seasonal lag does not show a clear cutoff, we keep it simple with P=0 or 1)
+- Seasonal MA (Q): 0 to 1
+
 
 # SARIMA Models
 ## Functions
@@ -373,12 +378,15 @@ compare_sarima_models <- function(series, models_list, verbose = TRUE) {
 ```
 
 ## Models
-We now list all possible models with non-seasonal AR terms up to 4, non-seasonal MA terms up to 1, and seasonal AR and MA terms at lag 5 and lag 1, respectively. 
+We now list all possible models with:
+- Non-seasonal AR (p): 0 to 4
+- Non-seasonal MA (q): 0 to 1
+- Seasonal AR (P): 0 to 1 (because the seasonal lag does not show a clear cutoff, we keep it simple with P=0 or 1)
+- Seasonal MA (Q): 0 to 1
+and keeping the differencing order fixed at (d=2, D=1) based on our previous analysis.
 
 ```{r}
-# All possible non-seasonal ARMA(p,q) with p <= 4 and q <= 1
-# Seasonal period fixed at 12, with P <= 5 and Q <= 1
-full_grid <- expand.grid(p = 0:4, q = 0:1, P = 0:5, Q = 0:1)
+full_grid <- expand.grid(p = 0:4, q = 0:1, P = 0:1, Q = 0:1)
 
 # Create all model names first
 model_names <- paste0(
@@ -416,15 +424,16 @@ From the comparison table we can see that:
 
 - All models are causal and invertible.
 - None of the models have normal residuals, likely due to the structural breaks in the data caused by the 2008 financial crisis and the COVID-19 pandemic.
-- Most models have independent residuals, with a few exceptions.
-- We can see that the performance metrics produce generally similar ranking across models. 
+- Less than half of the models have independent residuals.
+- The performance metrics produce generally similar ranking across models. 
 
-We select the top two models based on BIC, which provides a stronger penalty for model complexity than AIC, and on RMSPE, which is preferred over MAPE_pct due to its standardized scale.
+To shortlist, we first select models with independent residuals and then select the top two models based on BIC, which provides a stronger penalty for model complexity than AIC, and on RMSPE, which is preferred over MAPE_pct due to its standardized scale.
 
 ```{r}
 # select top 2 models based on BIC and RMSPE
-top_bic <- comparison_table[order(comparison_table$BIC),][1:2,]
-top_rmspe <- comparison_table[order(comparison_table$RMSPE, decreasing = TRUE),][1:2,]
+independent_table <- subset(comparison_table, Independent == "Yes")
+top_bic <- independent_table[order(independent_table$BIC),][1:2,]
+top_rmspe <- independent_table[order(independent_table$RMSPE, decreasing = TRUE),][1:2,]
 cat("\nTop 2 Models by BIC:\n")
 print(top_bic[, c("Model_Name", "BIC", "RMSPE")])
 cat("\nTop 2 Models by RMSPE:\n")
@@ -465,9 +474,19 @@ stats <- analyze_sarima_wrapper(top_rmspe$Model_Name[2])
 print(t(stats))
 ```
 
-## Final Model: ARIMA(1,2,1)(1,0,1)[12] [NEED TO EDIT]
+## Final Model: ARIMA(1,2,1)(0,1,1)[12]
 
-[NEED TO EDIT]
-Across all models, the residuals fail the normality test, which is also evident in the Q–Q plots. However, the residual plots and histograms suggest that this deviation is largely driven by extreme observations during the Covid period. The 2008 financial crisis shows elevated residuals as well, but not to the same magnitude. We also observe one additional extreme residual between 2000 and 2005 that cannot be linked to any identifiable event.
-Regarding variance, although it decreases slightly over time, the slope is minimal, indicating that the variance is relatively stable overall. The variance‑diagnostic plot does show signs of heteroskedasticity, likely reflecting structural breaks in the data.
-In terms of coefficient significance, the ARIMA(1,0,0)(1,0,1)[12] and ARIMA(0,0,3)(1,0,1)[12] models have all coefficients statistically significant, whereas the remaining models include non‑significant terms. Selecting the most parsimonious model with fully significant coefficients, we choose ARIMA(1,0,0)(1,0,1)[12] as the final specification.
+In choosing the final model, we examine the following criteria:
+
+**Residual Analysis:** Across all models, the residuals fail the normality test, evident in the Q–Q plots. However, the residual plots and histograms show that this deviation is largely driven by extreme observations during the COVID-19 period. The 2008 financial crisis also shows elevated residuals, though less extreme. One additional extreme residual appears between 2000 and 2005 that cannot be linked to any identifiable event. The variance decreases slightly over time but the slope is minimal, suggesting reasonable stability and not a deciding factor.
+
+**Coefficient Significance:** All coefficients across shortlisted models are significant so this is not a deciding factor.
+
+**Model Parismony:** The most parismonious models are:
+
+- ARIMA(1,2,1)(1,1,0)
+- ARIMA(1,2,1)(0,1,1)[12]
+
+**Model Performance:** ARIMA(1,2,1)(0,1,1)[12] demonstrates the best performance.
+
+Therefore, we select **ARIMA(1,2,1)(0,1,1)[12]** as our final model for unemployment forecasting.
