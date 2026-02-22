@@ -60,7 +60,7 @@ period_length <- 12
 xlabel <- "month"
 ylabel <- "Unemployment Rate (%)"
 ```
-## Plotting the series
+## Plot
 
 
 ```{r, fig.width=7, fig.height=4}
@@ -379,6 +379,7 @@ compare_sarima_models <- function(series, models_list, verbose = TRUE) {
 
 ## Models
 We now list all possible models with:
+
 - Non-seasonal AR (p): 0 to 4
 - Non-seasonal MA (q): 0 to 1
 - Seasonal AR (P): 0 to 1 (because the seasonal lag does not show a clear cutoff, we keep it simple with P=0 or 1)
@@ -442,7 +443,7 @@ print(top_rmspe[, c("Model_Name", "BIC", "RMSPE")])
 # Model Shortlist
 Now we analyze the shortlisted models in more detail. 
 
-## Function
+## Functions
 ```{r}
 analyze_sarima_wrapper <- function(model) {
   chosen_model_index <- which(comparison_table$Model_Name == model)
@@ -478,7 +479,7 @@ print(t(stats))
 
 In choosing the final model, we examine the following criteria:
 
-**Residual Analysis:** Across all models, the residuals fail the normality test, evident in the Q–Q plots. However, the residual plots and histograms show that this deviation is largely driven by extreme observations during the COVID-19 period. The 2008 financial crisis also shows elevated residuals, though less extreme. One additional extreme residual appears between 2000 and 2005 that cannot be linked to any identifiable event. The variance decreases slightly over time but the slope is minimal, suggesting reasonable stability and not a deciding factor.
+**Residual Analysis:** Across all models, the residuals fail the normality test, evident in the Q–Q plots. However, the residual plots and histograms show that this deviation is largely driven by extreme observations during the COVID-19 period. The 2008 financial crisis also shows elevated residuals, though less extreme. One additional extreme residual appears between 2000 and 2005 that cannot be linked to any identifiable event. The variance show stability overtime. Overall, residual analysis does not seem to be a deciding factor.
 
 **Coefficient Significance:** All coefficients across shortlisted models are significant so this is not a deciding factor.
 
@@ -489,4 +490,4 @@ In choosing the final model, we examine the following criteria:
 
 **Model Performance:** ARIMA(1,2,1)(0,1,1)[12] demonstrates the best performance.
 
-Therefore, we select **ARIMA(1,2,1)(0,1,1)[12]** as our final model for unemployment forecasting.
+Therefore, we select **ARIMA(1,2,1)(0,1,1)[12]** as our final model.
