@@ -446,7 +446,7 @@ Now we analyze the shortlisted models in more detail.
 ```{r}
 analyze_sarima_wrapper <- function(model) {
   chosen_model_index <- which(comparison_table$Model_Name == model)
-  # geet specs from my_models based on index
+  # get specs from my_models based on index
   chosen_model_spec <- my_models[[chosen_model_index]]
   stats <- analyze_sarima(
     ln_transformed, 
@@ -482,7 +482,7 @@ In choosing the final model, we examine the following criteria:
 
 **Coefficient Significance:** All coefficients across shortlisted models are significant so this is not a deciding factor.
 
-**Model Parismony:** The most parismonious models are:
+**Model Parsimony:** The most parsimonious models are:
 
 - ARIMA(1,2,1)(1,1,0)
 - ARIMA(1,2,1)(0,1,1)[12]
