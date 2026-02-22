@@ -199,6 +199,7 @@ acf_pacf_plots(d1d1d12ln_transformed, paste(series_name, "(log transformed, seas
 ```
 
 The ACF plot shows significant lags at 1 and  12 (seasonal lag 1). The PACF plot exhibits significant lags up to lag 4 with decaying seasonal lags. Based on this pattern, we specify models with:
+
 - Non-seasonal AR (p): 0 to 4
 - Non-seasonal MA (q): 0 to 1
 - Seasonal AR (P): 0 to 1 (because the seasonal lag does not show a clear cutoff, we keep it simple with P=0 or 1)
