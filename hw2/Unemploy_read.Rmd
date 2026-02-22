@@ -313,8 +313,29 @@ analyze_sarima <- function(series, order, seasonal, verbose = TRUE) {
   fit_train <- arima(train_set, order = order, seasonal = seasonal)
   fc <- predict(fit_train, n.ahead = 12)
   
-  fc_orig <- exp(fc$pred); test_orig <- exp(test_set)
-  lower_bound <- exp(fc$pred - 1.96 * fc$se); upper_bound <- exp(fc$pred + 1.96 * fc$se)
+  fc_orig <- exp(fc$pred); 
+  test_orig <- exp(test_set)
+  lower_bound <- exp(fc$pred - 1.96 * fc$se); 
+  upper_bound <- exp(fc$pred + 1.96 * fc$se)
+  
+  # 3b. Forecast Plot
+  if (verbose) {
+    par(mfrow=c(1,1))
+    xlim_max <- end(series)[1] + 1
+    ts.plot(exp(series), lower_bound, upper_bound, fc_orig,
+            lty = c(1, 2, 2, 1),
+            col = c("black", "blue", "#A200FF", "red"),
+            main = paste("Forecast:", model_name),
+            xlim = c(2021, xlim_max),
+            type="o",
+            ylab = "Unemployment Rate (%)")
+    legend("topleft",
+           c("Series", "Lower CI", "Upper CI", "Forecast"),
+           lty = c(1, 2, 2, 1),
+           col = c("black", "blue", "blue", "red"),
+           bty = "n")
+  }
+
   
   # 4. Summary Table Generation
   summary_row <- data.frame(
@@ -411,6 +432,8 @@ my_models <- setNames(
 print(model_names)
 ```
 
+
+
 ## Run Analysis
 ```{r}
 # Run Analysis
@@ -460,6 +483,8 @@ analyze_sarima_wrapper <- function(model) {
   return(stats)
 }
 ```
+
+
 ```{r, fig.width=7, fig.height=6}
 stats <- analyze_sarima_wrapper(top_bic$Model_Name[1])
 print(t(stats))
@@ -492,4 +517,11 @@ In choosing the final model, we examine the following criteria:
 
 **Model Performance:** ARIMA(1,2,1)(0,1,1)[12] demonstrates the best performance.
 
-Therefore, we select **ARIMA(1,2,1)(0,1,1)[12]** as our final model.
+## Validate need for differencing
+```{r}
+stats <- analyze_sarima(d1d1d12ln_transformed, 
+order = c(1,0,1), 
+seasonal = list(order = c(0,0,1)),
+verbose = TRUE)
+```
+Note that intercept is not significant when differencing is removed. Thus **ARIMA(1,2,1)(0,1,1)[12]** is chosen as our final model.
