@@ -1,0 +1,231 @@
+---
+title: "Conditional Heterocedastic models"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+library(quantmod)
+library(fGarch)
+library(fBasics)
+library(rugarch)
+```
+
+## Dow-Jones
+
+```{r}
+getSymbols("^DJI")
+val=get("DJI")
+```
+
+
+```{r}
+head(val)
+tail(val)
+```
+```{r}
+chartSeries(val)
+```
+
+```{r}
+serie=val[,6]
+plot(serie)
+```
+
+## Log-Returns calculation
+
+```{r}
+returns=diff(log(serie))[-1]
+plot(returns)
+```
+
+
+```{r}
+library(quantreg)
+(model <- rq(returns ~ 1, tau = 0.05))
+```
+```{r}
+window <- 250
+VaR <- returns
+VaR[1:window]=NA
+
+
+for(i in (window+1):length(returns)){
+
+  df=data.frame(returns[(i-window):(i-1)])
+  dimnames(df)[[2]]=c("rt")  
+  
+    model=rq(rt ~ 1,data=df, tau = 0.05)
+  VaR[i] <- coef(model)
+}
+
+plot(returns)
+lines(VaR,col=2,lwd=2)
+```
+```{r}
+
+
+window <- 250
+VaR <- returns
+VaR[1:window]=NA
+
+for(i in (window+2):length(returns)){
+  
+  df=data.frame(returns[(i-window):(i-1)],  returns[(i-window-1):(i-2)])
+  dimnames(df)[[2]]=c("rt","rt_1")  
+  
+  model <- rq(rt ~ rt_1, data=df, tau = 0.05)
+  
+  dfnew=data.frame(returns[i],returns[i-1])
+  dimnames(dfnew)[[2]]=c("rt","rt_1")
+  VaR[i] <- predict(model,newdata=dfnew)
+}
+
+plot(returns)
+lines(VaR,col=2,lwd=2)
+```
+
+
+```{r}
+par(mfrow=c(1,2))
+acf(returns,lag.max=80)
+pacf(returns,lag.max=80)
+par(mfrow=c(1,1))
+```
+
+```{r}
+(m1<-arima(returns,order=c(9,0,0)))
+```
+
+```{r}
+Zt=resid(m1)/sqrt(m1$sigma2)
+plot(Zt)
+abline(h=c(-3,3)*sd(Zt),col=4,lty=3)
+```
+```{r}
+qqnorm(Zt)
+qqline(Zt,col=2,lwd=2)
+```
+```{r}
+basicStats(Zt)
+```
+```{r}
+par(mfrow=c(1,2))
+acf(Zt,lag.max=60)
+pacf(Zt,lag.max=60)
+par(mfrow=c(1,1))
+```
+```{r}
+par(mfrow=c(1,2))
+acf(Zt^2,lag.max=80)
+pacf(Zt^2,lag.max=80)
+par(mfrow=c(1,1))
+```
+```{r}
+m2<-garchFit(~arma(9,0)+garch(1,1),returns,trace=0)
+```
+
+```{r}
+summary(m2)
+```
+```{r}
+m3<-garchFit(~arma(1,0)+garch(1,1),returns,trace=0)
+```
+```{r}
+summary(m3)
+```
+
+```{r}
+par(mfrow=c(2,1),mar=c(3,3,1,1))
+ts.plot(returns)
+ts.plot(m3@sigma.t)
+par(mfrow=c(1,1))
+```
+
+```{r}
+Zt=ts(m3@residuals/m3@sigma.t)
+plot(Zt)
+abline(h=c(-3,3)*sd(Zt),col=4,lty=3)
+```
+```{r}
+qqnorm(Zt)
+qqline(Zt,col=2,lwd=2)
+```
+```{r}
+hist(Zt,prob=T)
+curve(dnorm(x),lwd=2,col=2,add=T)
+```
+```{r}
+basicStats(Zt)
+```
+```{r}
+par(mfrow=c(1,2))
+acf(Zt,lag.max=80)
+pacf(Zt,lag.max=80)
+par(mfrow=c(1,1))
+```
+```{r}
+par(mfrow=c(1,2))
+acf(Zt^2,lag.max=80)
+pacf(Zt^2,lag.max=80)
+par(mfrow=c(1,1))
+```
+```{r}
+m4<-garchFit(~arma(1,0)+garch(1,1),returns,cond.dist ="sstd",trace=0)
+```
+```{r}
+summary(m4)
+```
+
+```{r}
+par(mfrow=c(2,1),mar=c(3,3,1,1))
+ts.plot(returns)
+ts.plot(m4@sigma.t)
+par(mfrow=c(1,1))
+```
+
+
+```{r}
+Zt=ts(m4@residuals/m4@sigma.t)
+plot(Zt)
+abline(h=c(-3,3)*sd(Zt),col=4,lty=3)
+```
+```{r}
+set.seed(12345)
+yy=rsstd(n=length(returns),nu=coef(m4)["shape"],xi=coef(m4)["skew"])
+qqplot(Zt,yy)
+qqline(Zt, distribution = function(p)qsstd(p,nu=coef(m4)["shape"],xi=coef(m4)["skew"]),col=2,lwd=2)
+```
+```{r}
+hist(Zt,prob=T,breaks=15)
+curve(dsstd(x,nu=coef(m4)["shape"],xi=coef(m4)["skew"]),lwd=2,col=2,add=T)
+```
+
+```{r}
+basicStats(Zt)
+```
+```{r}
+par(mfrow=c(1,2))
+acf(Zt,lag.max=80)
+pacf(Zt,lag.max=80)
+par(mfrow=c(1,1))
+```
+```{r}
+par(mfrow=c(1,2))
+acf(Zt^2,lag.max=80)
+pacf(Zt^2,lag.max=80)
+par(mfrow=c(1,1))
+```
+
+
+```{r}
+VaR=-qsstd(0.95,mean=m4@fitted,
+      sd=m4@sigma.t,
+      nu=coef(m4)["shape"],xi=coef(m4)["skew"])
+ts.plot(returns)
+lines(VaR,col=2,lwd=2)
+```

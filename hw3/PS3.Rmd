@@ -1,0 +1,230 @@
+---
+title: "Financial Econometrics Practice TS #3"
+subtitle: "Daniel Campos, Joshua Castillo, and Cherryl Chico"
+date: "March 11, 2026"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    number_sections: true
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 4.5,
+  fig.align = "center"
+)
+```
+
+# Introduction
+
+This report answers Practice TS3 using the Coca-Cola Company stock (`KO`). Following the assignment instructions, I work with the adjusted closing price from 2007 onward, compute log-returns, and fit three conditional volatility models with the `fGarch` package: `ARCH(1)`, `ARCH(3)`, and `GARCH(1,1)`.
+
+The goal is not to model the conditional mean in detail, but to compare how well each volatility specification captures the clustering in returns. The discussion below keeps the same workflow as the Dow Jones example, but only includes the parts needed for this questionnaire.
+
+# Data Preparation
+
+I first download the `KO` series, keep the adjusted close, and transform prices into log-returns. These are the inputs used in the volatility models.
+
+```{r data-prep}
+library(quantmod)
+library(fGarch)
+library(fBasics)
+
+# Download KO prices from Yahoo Finance starting in 2007.
+getSymbols("KO", from = "2007-01-01", auto.assign = TRUE)
+
+# Keep the adjusted closing price and compute continuously compounded returns.
+ko_price <- Ad(KO)
+ko_return <- na.omit(diff(log(ko_price)))
+ko_return_vec <- as.numeric(ko_return)
+
+# Record the sample window for the discussion.
+sample_summary <- data.frame(
+  start = as.character(start(ko_return)),
+  end = as.character(end(ko_return)),
+  observations = NROW(ko_return)
+)
+
+knitr::kable(sample_summary, caption = "Sample used in the analysis")
+```
+
+## Price and Return Plots
+
+The adjusted price shows the long-run trend in the stock, while log-returns make volatility clustering visible. The returns fluctuate around a small mean, but large and small movements clearly come in clusters, which motivates the use of ARCH/GARCH models.
+
+```{r price-return-plots}
+par(mfrow = c(2, 1), mar = c(3, 4, 2, 1))
+
+# Plot the adjusted closing price.
+plot(ko_price, main = "KO Adjusted Closing Price", ylab = "Adjusted price", xlab = "")
+
+# Plot the log-returns used for estimation.
+plot(ko_return, main = "KO Log-Returns", ylab = "Log-return", xlab = "Date")
+
+par(mfrow = c(1, 1))
+```
+
+# Volatility Models
+
+The assignment asks for three variance specifications. Since the mean is not modeled with ARIMA terms here, the fitted equations take the form
+
+$$r_t = \mu + \varepsilon_t, \qquad \varepsilon_t = \sigma_t z_t, \qquad z_t \sim N(0,1),$$
+
+with a different law for $\sigma_t^2$ in each case.
+
+```{r fit-models}
+# Fit the three volatility models requested in the questionnaire.
+fit_arch1 <- garchFit(~ garch(1, 0), data = ko_return_vec, trace = FALSE)
+fit_arch3 <- garchFit(~ garch(3, 0), data = ko_return_vec, trace = FALSE)
+fit_garch11 <- garchFit(~ garch(1, 1), data = ko_return_vec, trace = FALSE)
+
+fits <- list(
+  "ARCH(1)" = fit_arch1,
+  "ARCH(3)" = fit_arch3,
+  "GARCH(1,1)" = fit_garch11
+)
+```
+
+## Fitted Equations
+
+The estimated coefficients below give the explicit fitted model for each specification. I report the mean equation and the conditional variance equation separately so the interpretation is clear.
+
+```{r fitted-equations, results='asis'}
+write_equation <- function(fit, label) {
+  cf <- coef(fit)
+
+  cat("### ", label, "\n\n", sep = "")
+  cat(sprintf(
+    "$$r_t = %.6f + \\varepsilon_t, \\qquad \\varepsilon_t = \\sqrt{h_t} z_t, \\qquad z_t \\sim N(0,1)$$\n\n",
+    cf["mu"]
+  ))
+
+  if (label == "ARCH(1)") {
+    cat(sprintf(
+      "$$h_t = %.8f + %.6f \\varepsilon_{t-1}^2.$$\n\n",
+      cf["omega"], cf["alpha1"]
+    ))
+  }
+
+  if (label == "ARCH(3)") {
+    cat(sprintf(
+      "$$h_t = %.8f + %.6f \\varepsilon_{t-1}^2 + %.6f \\varepsilon_{t-2}^2 + %.6f \\varepsilon_{t-3}^2.$$\n\n",
+      cf["omega"], cf["alpha1"], cf["alpha2"], cf["alpha3"]
+    ))
+  }
+
+  if (label == "GARCH(1,1)") {
+    cat(sprintf(
+      "$$h_t = %.8f + %.6f \\varepsilon_{t-1}^2 + %.6f h_{t-1}.$$\n\n",
+      cf["omega"], cf["alpha1"], cf["beta1"]
+    ))
+    cat(sprintf(
+      "The persistence measure is $\\alpha_1 + \\beta_1 = %.6f$, which indicates highly persistent volatility.\n\n",
+      cf["alpha1"] + cf["beta1"]
+    ))
+  }
+}
+
+invisible(mapply(write_equation, fits, names(fits)))
+```
+
+# Diagnostic Comparison
+
+To choose the best specification, I compare information criteria and residual diagnostics. The most important checks are whether standardized residuals behave like white noise and whether squared standardized residuals still show autocorrelation. If squared residual autocorrelation remains, then the volatility model is still missing ARCH effects.
+
+```{r diagnostic-table}
+diagnostic_table <- do.call(
+  rbind,
+  lapply(names(fits), function(model_name) {
+    fit <- fits[[model_name]]
+    z <- as.numeric(residuals(fit, standardize = TRUE))
+
+    data.frame(
+      Model = model_name,
+      AIC = fit@fit$ics["AIC"],
+      BIC = fit@fit$ics["BIC"],
+      LB_resid_10_p = Box.test(z, lag = 10, type = "Ljung-Box")$p.value,
+      LB_resid_20_p = Box.test(z, lag = 20, type = "Ljung-Box")$p.value,
+      LB_sq_10_p = Box.test(z^2, lag = 10, type = "Ljung-Box")$p.value,
+      LB_sq_20_p = Box.test(z^2, lag = 20, type = "Ljung-Box")$p.value,
+      Skewness = basicStats(z)["Skewness", 1],
+      Kurtosis = basicStats(z)["Kurtosis", 1]
+    )
+  })
+)
+
+diagnostic_table[, -1] <- round(diagnostic_table[, -1], 4)
+
+knitr::kable(diagnostic_table, caption = "Model comparison using standardized residual diagnostics")
+```
+
+The table shows a clear ranking. `ARCH(1)` leaves very strong dependence in the squared standardized residuals, with Ljung-Box p-values essentially equal to zero at both lag 10 and lag 20. `ARCH(3)` is a substantial improvement, and by lag 10 it no longer rejects, but the squared residual test at lag 20 still rejects at the 5% level.
+
+`GARCH(1,1)` provides the best fit. It has the lowest `AIC` and `BIC`, and its Ljung-Box p-values for squared standardized residuals are very high at both lag choices, which means there is no evidence of remaining ARCH effects. This is exactly the pattern we want from a good volatility specification.
+
+## Residual Plots
+
+The next plots visualize the same conclusion. A useful model should leave standardized residuals centered around zero and should remove visible autocorrelation from the squared residuals.
+
+```{r residual-plots}
+par(mfrow = c(3, 2), mar = c(3, 4, 2, 1))
+
+for (model_name in names(fits)) {
+  fit <- fits[[model_name]]
+  z <- as.numeric(residuals(fit, standardize = TRUE))
+
+  # Plot standardized residuals to inspect outliers and clustering.
+  plot(z, type = "l", main = paste(model_name, "standardized residuals"),
+       ylab = "z_t", xlab = "Index")
+  abline(h = c(-3, 3), col = "firebrick", lty = 2)
+
+  # Check whether squared residual autocorrelation remains after fitting.
+  acf(z^2, main = paste(model_name, "ACF of squared residuals"))
+}
+
+par(mfrow = c(1, 1))
+```
+
+The residual diagnostics reinforce the model comparison. `ARCH(1)` is too restrictive for this return series, and `ARCH(3)` captures more short-run variation but still leaves some dependence in the volatility. `GARCH(1,1)` is the only model among the three that adequately absorbs the clustering in the conditional variance.
+
+## Best Model: GARCH(1,1)
+
+Since `GARCH(1,1)` is the preferred model, I look at its diagnostics once more on their own. The standardized residual ACF should be close to white noise, while the squared residual ACF should show no meaningful remaining structure.
+
+```{r best-model-diagnostics}
+best_fit <- fit_garch11
+best_z <- as.numeric(residuals(best_fit, standardize = TRUE))
+
+par(mfrow = c(2, 2), mar = c(3, 4, 2, 1))
+
+# Standardized residual path.
+plot(best_z, type = "l", main = "GARCH(1,1): standardized residuals",
+     ylab = "z_t", xlab = "Index")
+abline(h = c(-3, 3), col = "firebrick", lty = 2)
+
+# QQ plot to assess departures from normality.
+qqnorm(best_z, main = "GARCH(1,1): QQ plot")
+qqline(best_z, col = "steelblue", lwd = 2)
+
+# Residual autocorrelation should be weak.
+acf(best_z, main = "GARCH(1,1): ACF of residuals")
+
+# Squared residual autocorrelation should also be weak.
+acf(best_z^2, main = "GARCH(1,1): ACF of squared residuals")
+
+par(mfrow = c(1, 1))
+```
+
+The selected model removes the volatility clustering much better than the pure ARCH alternatives. The only visible limitation is that the standardized residuals still display non-normal tails, as suggested by the QQ plot and the excess kurtosis above 3. That is common in financial returns and does not overturn the conclusion that `GARCH(1,1)` is the best model within the set requested in the assignment.
+
+# Conclusion
+
+Using `KO` log-returns from 2007 onward, I estimated `ARCH(1)`, `ARCH(3)`, and `GARCH(1,1)` models with the `fGarch` package. The fitted equations were written explicitly from the estimated coefficients, and the model comparison was based on information criteria together with Ljung-Box tests on standardized and squared standardized residuals.
+
+Among the three candidates, `GARCH(1,1)` provides the best fit. It has the lowest information criteria and, most importantly, it removes the remaining autocorrelation in the squared standardized residuals, which means it captures the conditional heteroskedasticity in the return series more successfully than the two ARCH models.

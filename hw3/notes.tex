@@ -1,0 +1,45 @@
+
+\section{Modeling Steps}
+Using financial data:
+
+\begin{enumerate}
+    \item Change to Log
+    \item Apply differencing including seasonality differencing 
+    \item Do ACF, PACF note that this is not the "true" because we are not modeling the variance yet, but it can give us some idea of the AR and MA. No need to consider far lags (not to be trusted) and focus on the first few lags.
+    \item ASSUME CONSTANT MEAN AND CONSTANT VARIANCE. Model ARMA(p,q). Usually just AR with p large (like 9 in example). Check for significance from AR1 to ARp terms
+    \item Validate: $z_t~N(0,1)$, i.e. white noise
+    \begin{enumerate}
+        \item standardized residuals. 
+        \item Plot residuals with $ +- 3\sigma, ~sim 99.7\%$. See if there are any outliers (volatility clustering)
+        \item QQ plot: See heavy tails $\rightarrow$ not normal. Check also skewness and kurtosis (in R should be both 0, kurtosis here is in excess of normal which is 3)
+        \item ACF, PACF of residuals: earliest non-significant means mean model explained up to that lag.
+        \item ACF PACF of squared residuals: if significant, then there is still some volatility clustering that is not captured by the mean model, so we need to model the variance. Infinity no. of lags in ACF usually GARCH(1,1), for PACF use the siginificant lags to determine ARCH(p). So we can model both GARCH and ARCH but usually GARCH(1,1) is best 95\% of the time.
+    \end{enumerate}
+    \item Model the mean AND variance, so we have ARMA(p, 0) (usually no MA part) + GARCH(1,1). For GARCH, small p and q are usually sufficient. 
+    \item Understanding the results of the model
+    \begin{enumerate}
+        \item Now we check the significance of the AR and GARCH parameters. We will see here that AR parameters lags will be significant only up to a few lags (changed from just ARp model) and GARCH parameters should be significant.
+        \item normalized loglikelihood: AIC = -2 log-likelihood + 2k, where k is the number of parameters. We want to minimize AIC. So we can compare different models and choose the one with the lowest AIC.
+        \item JB Test (based on skewness and kurtosis) and Shapiro Wilk Test (related to QQ plot): test for normality of the residuals. Goal is to not reject (p-value $>$ 0.05) 
+        \item MODEL FOR THE MEAN: Ljung-Box Test (residuals): Goal is to not reject (i.e. have p-value $>$ 0.05). We test for different lags because it tests all lags from 0 to the specified lag. So we want to test for a range of lags to ensure that there is no autocorrelation in the residuals at any lag.
+        \item MODEL FOR THE VARIANCE: Ljung-Box Test (squared residuals): test for autocorrelation in the residuals.
+        \item LM Arch Test: test for remaining ARCH effects in the residuals. Goal is to not reject (p-value $>$ 0.05), which means that there are no remaining ARCH effects and our GARCH model is sufficient to capture the volatility clustering in the data.
+    \end{enumerate}
+    \item  Test for ARMA(1,0) + GARCH(1,1). If we got the following values:
+    \[ \mu = 0.0007, ar1  =-0.042 , \omega = 0.000002982, \alpha1 = 0.1432, \beta1 = 0.8323\]
+    Then the corresponding model for the return is:
+    \[ (1 + 0.042 B)(r_t - 0.0007) = Z_t, \quad \sigma_t^2 =  0.000002982+ 0.1432 Z_{t-1}^2 + 0.8323 \sigma_{t-1}^2, \quad Z_t/\sigma_t ~ N(0,1) \]
+    And the persistence measure is $\alpha_1 + \beta_1 = 0.1432 + 0.8323 = 0.9755$, which is close to 1, so we have high persistence, i.e. speed of convergence to the long-run variance is slow. In the graph of volatility over time, when we have cluster of volatility, GARCH will capture that and then the volatility will slowly decay back to the long-run variance. 
+    \item Review results of the model. Possible that normality will fail because of "leverage effect". But we see this in the JB test and Shapiro Wilk Test. 
+    \item Do the usual plots again (but include separate for mean and volatility) We want to see if we have captured the volatility clustering and if the standardized residuals are now white noise with mean zero and variance one. On leverage effect, we can see if there are more standardized residuals with large magnitude for negative returns than for positive returns. 
+    \item ACF, PACF of squared residuals should now be non-significant, which means that we have captured the volatility clustering.
+    \item By this time, usually only normality fails. So instead of Normal, we can use standard t-dist (to handle kurtosis, \texttt{std}), or skewed normal, and combination which is skewed standard dist (to handle both skewness and kurtosis, \texttt{sstd}) (or even skewed general distribution, \texttt{sged})
+    \begin{enumerate}
+        \item we will have 2 additional parameters: skew and shape. Check for significance of these parameters. 
+        \item for QQ plot, instead of comparing to normal distribution, we compare to the specified distribution (e.g. t-dist). in R use \texttt{qqplot} and \texttt{qqline} but simulate the theoretical quantiles from the specified distribution. So the test to see if we have specified the right distribution is via the plot. There are tests but its not common so we do QQ. 
+        \item Plot histogram to see if the distribution fits the data well. 
+        \item Check basic statistics like sknewsss and kurtosis. 
+    \end{enumerate}
+    \item finally check if ACF and PACF confirms the model specification. If we have specified the model correctly, then the ACF and PACF of the standardized residuals should show no significant autocorrelation at any lag, which means that our model has successfully captured the dynamics of the mean and variance in the data.
+    \item VaR based on the fitted model. SSTD (mean, sdf, skew, shape). And get the 95\% VaR. 
+\end{enumerate}
